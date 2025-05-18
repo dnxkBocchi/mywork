@@ -14,6 +14,7 @@ def calculate_voyage_distance(uav, task):
     distance = math.hypot(x2 - x1, y2 - y1)
     return distance
 
+
 def calculate_voyage_time(uav, task):
     """
     计算航行时间
@@ -21,6 +22,7 @@ def calculate_voyage_time(uav, task):
     """
     distance = calculate_voyage_distance(uav, task)
     return distance / uav.speed
+
 
 def calculate_fitness(task, uav):
     """
@@ -83,8 +85,8 @@ def calculate_reward(uav, task, target, alpha=1.0, beta=1.0, gamma=1.0):
     alpha, beta, gamma: 权重系数，可根据策略重点调节
     """
     # 先检查约束，若不满足则给一个大负奖励
-    if not check_constraints(uav, task):
-        return -1
+    # if not check_constraints(uav, task):
+    #     return 0
 
     fit = calculate_fitness(task, uav)
 
