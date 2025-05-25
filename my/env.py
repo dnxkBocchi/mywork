@@ -8,7 +8,6 @@ class Uav:
     异质无人机节点拥有的属性：
     - id: 节点ID
     - type: 节点类型 (1打击、2侦查、3评估)
-    - status: 节点状态 (0空闲、1执行任务)
     - location: 节点位置
     - strike: 打击能力
     - reconnaissance: 侦察能力
@@ -25,7 +24,6 @@ class Uav:
         self,
         id: str,
         type: int,
-        status: int,
         location: Tuple[float, float],
         strike: float,
         reconnaissance: float,
@@ -39,17 +37,29 @@ class Uav:
     ):
         self.id = id
         self.type = type
-        self.status = status
         self.location = (round(location[0], 2), round(location[1], 2))
         self.strike = round(strike, 2)
         self.reconnaissance = round(reconnaissance, 2)
         self.assessment = round(assessment, 2)
         self.ammunition = ammunition
-        self.time = time
+        self.time = round(time, 2)
         self.voyage = round(voyage, 2)
         self.speed = round(speed, 2)
         self.value = round(value, 2)
         self.available_time = round(available_time, 2)
+
+        # 保存一份初始状态
+        self._init_location   = location
+        self._init_ammunition = ammunition
+        self._init_time       = time
+        self._init_voyage     = voyage
+
+    def reset(self):
+        """恢复到初始状态"""
+        self.location   = self._init_location
+        self.ammunition = self._init_ammunition
+        self.time       = self._init_time
+        self.voyage     = self._init_voyage
 
 
 class Task:
@@ -85,7 +95,7 @@ class Task:
         self.reconnaissance = round(reconnaissance, 2)
         self.assessment = round(assessment, 2)
         self.ammunition = ammunition
-        self.time = time
+        self.time = round(time, 2)
         self.value = round(value, 2)
 
 
@@ -121,13 +131,12 @@ def load_uavs(csv_path: str) -> List[Uav]:
         uav = Uav(
             id=row["id"],
             type=int(row["type"]),
-            status=0,
             location=parse_location(row["location"]),
             strike=float(row["strike"]),
             reconnaissance=float(row["reconnaissance"]),
             assessment=float(row["assessment"]),
             ammunition=int(row["ammunition"]),
-            time=int(row["time"]),
+            time=float(row["time"]),
             voyage=float(row["voyage"]),
             speed=float(row["speed"]),
             value=float(row["value"]),
@@ -148,7 +157,7 @@ def load_tasks(csv_path: str) -> List[Task]:
             reconnaissance=float(row["reconnaissance"]),
             assessment=float(row["assessment"]),
             ammunition=int(row["ammunition"]),
-            time=int(row["time"]),
+            time=float(row["time"]),
             value=float(row["value"]),
         )
         tasks.append(task)
