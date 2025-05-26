@@ -6,8 +6,9 @@ import os
 
 # 添加项目根目录到 sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-
 from my.calculate import calculate_fitness, calculate_max_possible_voyage
+
+debug = False  # 是否打印调试信息
 
 
 class Particle:
@@ -22,14 +23,11 @@ class Particle:
 
         # 位置向量：每个任务分配给哪个无人机
         self.position = np.random.randint(0, num_uavs, size=num_tasks)
-
         # 速度向量：位置更新的变化量
         self.velocity = np.random.uniform(-1, 1, size=num_tasks)
-
         # 个体最优位置和适应度
         self.pbest_position = self.position.copy()
         self.pbest_fitness = float("-inf")
-
         # 当前适应度
         self.fitness = float("-inf")
 
@@ -42,29 +40,31 @@ class Particle:
         :param c2: 社会学习因子
         """
         r1, r2 = random.random(), random.random()
-
         # 认知部分：向个体最优学习
         cognitive = c1 * r1 * (self.pbest_position - self.position)
-
         # 社会部分：向全局最优学习
         social = c2 * r2 * (gbest_position - self.position)
-
         # 更新速度
         self.velocity = w * self.velocity + cognitive + social
-
         # 速度限制（可选）
         self.velocity = np.clip(self.velocity, -2, 2)
+        if debug:
+            print(
+                f"r1: {r1}, r2: {r2}, cognitive: {cognitive}, social: {social}, velocity: {self.velocity}"
+            )
 
     def update_position(self):
         """更新粒子位置"""
+        if debug:
+            print(f"Before update - Position: {self.position}")
         # 添加速度到位置
         self.position = self.position + self.velocity
-
         # 对位置进行离散化处理（转为整数）
         self.position = np.round(self.position).astype(int)
-
         # 确保位置在有效范围内（0到num_uavs-1）
         self.position = np.clip(self.position, 0, self.num_uavs - 1)
+        if debug:
+            print(f"After update - Position: {self.position}")
 
 
 class PSO:
@@ -97,9 +97,6 @@ class PSO:
         # 全局最优位置和适应度
         self.gbest_position = None
         self.gbest_fitness = float("-inf")
-
-        # 记录每次迭代的最优适应度
-        self.fitness_history = []
 
         # 计算理论最大航程用于归一化
         self.max_possible_voyage = calculate_max_possible_voyage(env.uavs, env.targets)
@@ -138,46 +135,23 @@ class PSO:
         while not done and step < self.num_tasks:
             # 获取当前任务应该分配的无人机索引
             uav_index = particle.position[step]
-
             # 执行动作
             next_state, reward, done, _ = self.env.step(uav_index)
-            state = next_state
             step += 1
 
-        # 计算适应度（基于最终奖励、航程和任务完成率）
-        total_reward = (
-            sum(r for r in self.env.rewards_history)
-            if hasattr(self.env, "rewards_history")
-            else 0
-        )
-
-        # 计算任务完成率
-        tasks_completed = sum(
-            self.env.task_step[target.id] for target in self.env.targets
-        )
-        total_tasks = sum(len(target.tasks) for target in self.env.targets)
-        completion_rate = tasks_completed / total_tasks if total_tasks > 0 else 0
-
         # 计算任务适配度（所有任务的平均适配度）
-        avg_fitness = 0
-        if hasattr(self.env, "fitness_history") and len(self.env.fitness_history) > 0:
-            avg_fitness = sum(self.env.fitness_history) / len(self.env.fitness_history)
+        avg_reward = sum(self.env.reward_history) / self.num_tasks
 
         # 计算归一化的总航程（越小越好）
         normalized_voyage = min(self.env.total_voyage / self.max_possible_voyage, 1.0)
 
         # 综合评分（可调整权重）
-        alpha = 0.4  # 任务完成率权重
-        beta = 0.4  # 任务适配度权重
+        alpha = 1.0  # 任务适配度权重
+        beta = 1  # 任务适配度权重
         gamma = 0.2  # 航程权重
 
         # 注意：航程是越小越好，所以用1减去归一化航程
-        fitness = (
-            alpha * completion_rate
-            + beta * avg_fitness
-            + gamma * (1 - normalized_voyage)
-        )
-
+        fitness = alpha * avg_reward
         return fitness
 
     def optimize(self):
@@ -202,69 +176,10 @@ class PSO:
                     self.gbest_fitness = fitness
                     self.gbest_position = particle.position.copy()
 
-            # 记录当前迭代的最优适应度
-            self.fitness_history.append(self.gbest_fitness)
-
             # 打印进度
-            if (iteration + 1) % 10 == 0:
-                print(
-                    f"Iteration {iteration+1}/{self.max_iter} - Best Fitness: {self.gbest_fitness:.4f}"
-                )
+            print(
+                f"Iteration {iteration+1}/{self.max_iter} - Best Fitness: {self.gbest_fitness:.4f}, position: {self.gbest_position.tolist()}"
+            )
 
         # 返回最优解
         return self.gbest_position, self.gbest_fitness
-
-    def get_metrics(self):
-        """获取优化后的评估指标"""
-        # 使用最优解执行一次完整的任务分配
-        state = self.env.reset()
-        done = False
-        step = 0
-
-        while not done and step < self.num_tasks:
-            uav_index = self.gbest_position[step]
-            next_state, reward, done, _ = self.env.step(uav_index)
-            state = next_state
-            step += 1
-
-        # 计算各项指标
-        total_voyage = self.env.total_voyage
-
-        # 任务完成率
-        tasks_completed = sum(
-            self.env.task_step[target.id] for target in self.env.targets
-        )
-        total_tasks = sum(len(target.tasks) for target in self.env.targets)
-        completion_rate = tasks_completed / total_tasks if total_tasks > 0 else 0
-
-        # 计算任务适配度
-        avg_fitness = 0
-        if hasattr(self.env, "fitness_history") and len(self.env.fitness_history) > 0:
-            avg_fitness = sum(self.env.fitness_history) / len(self.env.fitness_history)
-        else:
-            # 如果环境中没有记录适配度历史，需要重新计算
-            fitness_history = []
-            state = self.env.reset()
-            done = False
-            step = 0
-            while not done and step < self.num_tasks:
-                uav_index = self.gbest_position[step]
-                task = self.env.targets[self.env.current_target_idx].tasks[
-                    self.env.task_step[self.env.current_target_idx]
-                ]
-                uav = self.env.uavs[uav_index]
-                fitness = calculate_fitness(task, uav)
-                fitness_history.append(fitness)
-                next_state, reward, done, _ = self.env.step(uav_index)
-                state = next_state
-                step += 1
-            avg_fitness = (
-                sum(fitness_history) / len(fitness_history) if fitness_history else 0
-            )
-
-        return {
-            "total_voyage": total_voyage,
-            "completion_rate": completion_rate,
-            "avg_fitness": avg_fitness,
-            "fitness": self.gbest_fitness,
-        }
