@@ -17,7 +17,6 @@ class Uav:
     - voyage: 航程
     - speed: 飞行速度
     - value: 节点价值
-    - available_time: 可用时间
     """
 
     def __init__(
@@ -33,7 +32,6 @@ class Uav:
         voyage: float,
         speed: float,
         value: float,
-        available_time: float = 0.0,
     ):
         self.id = id
         self.type = type
@@ -46,20 +44,21 @@ class Uav:
         self.voyage = round(voyage, 2)
         self.speed = round(speed, 2)
         self.value = round(value, 2)
-        self.available_time = round(available_time, 2)
+        self.end_time = 0.0  # 任务结束时间
 
         # 保存一份初始状态
-        self._init_location   = location
+        self._init_location = location
         self._init_ammunition = ammunition
-        self._init_time       = time
-        self._init_voyage     = voyage
+        self._init_time = time
+        self._init_voyage = voyage
 
     def reset(self):
         """恢复到初始状态"""
-        self.location   = self._init_location
+        self.location = self._init_location
         self.ammunition = self._init_ammunition
-        self.time       = self._init_time
-        self.voyage     = self._init_voyage
+        self.time = self._init_time
+        self.voyage = self._init_voyage
+        self.end_time = 0.0
 
 
 class Task:
@@ -97,6 +96,16 @@ class Task:
         self.ammunition = ammunition
         self.time = round(time, 2)
         self.value = round(value, 2)
+        self.waiting_time = 0.0  # 任务等待时间
+        self.end_time = 0.0  # 任务结束时间
+        self.target = None  # 任务所属目标对象，初始化为None
+        self.flag = False  # 任务是否被完成的标志
+
+    def reset(self):
+        """恢复到初始状态"""
+        self.waiting_time = 0.0
+        self.end_time = 0.0
+        self.flag = False
 
 
 class Target:
@@ -116,6 +125,7 @@ class Target:
     ):
         self.id = id
         self.tasks = tasks
+        self.total_time = 0.0
         self.location = (round(location[0], 2), round(location[1], 2))
 
 
@@ -182,8 +192,13 @@ def initialize_targets(tasks: List[Task]) -> List[Target]:
         avg_y = (t1.location[1] + t2.location[1] + t3.location[1]) / 3
         target = Target(
             id=f"TARGET{i+1:02d}",
-            tasks=[t1, t2, t3],
-            location=(avg_x, avg_y)
+            # 生成目标任务序列（侦察→打击→评估）
+            tasks=[t2, t1, t3],
+            location=(avg_x, avg_y),
         )
+        # 设置任务所属目标ID
+        t1.target = target
+        t2.target = target
+        t3.target = target
         targets.append(target)
     return targets

@@ -7,7 +7,7 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 
 from model.dqn import DQN, ReplayBuffer
-from calculate import calculate_all_voyage_distance
+from calculate import *
 
 
 def train_dqn(
@@ -39,6 +39,7 @@ def train_dqn(
         total_reward = 0
         total_success = 0
         total_distance = 0
+        total_time = 0
 
         done = False
         while not done:
@@ -58,7 +59,7 @@ def train_dqn(
                 next_state if next_state is not None else np.zeros_like(state),
                 done,
             )
-            print(state.shape, next_state.shape, reward, done)
+
             state = next_state
             total_reward += reward
 
@@ -88,9 +89,10 @@ def train_dqn(
         total_reward /= num_tasks  # 平均每个任务的奖励
         total_success /= num_tasks  # 平均每个任务的成功率
         total_distance = calculate_all_voyage_distance(env.uavs)
+        total_time = calculate_all_voyage_time(env.targets)
         print(
             f"Episode {ep} | Total Reward: {total_reward:.2f} | Total Distance: {total_distance:.2f} | \
-Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
+Total Time: {total_time:.2f} | Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
         )
 
         # 每 50 轮绘制一次 reward 曲线

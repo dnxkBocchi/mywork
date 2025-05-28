@@ -9,27 +9,31 @@ debug = False  # 是否打印调试信息
 
 # 简化版环境示例
 class UAVEnv:
-    def __init__(self, uavs, targets, map_size=1000.0, mode="dqn"):
+    def __init__(self, uavs, targets, tasks, map_size=1000.0, mode="dqn"):
         self.uavs = uavs
         self.targets = targets
+        self.tasks = tasks
         self.map_size = map_size
         self.done = False
         self.mode = mode
 
         # 新增：用于评估的属性
-        self.total_voyage = 0        # 总航程
-        self.reward_history = []    # 奖励历史
+        self.total_voyage = 0  # 总航程
+        self.reward_history = []  # 奖励历史
 
         self.max_ammo = max(u.ammunition for u in uavs) or 1
         self.max_voyage = max(u.voyage for u in uavs) or 1
         self.max_speed = max(u.speed for u in uavs) or 1
+        # 后面奖励函数要用到
+        self.max_total_voyage, self.max_total_time = calculate_max_possible_voyage_time(self.uavs, self.targets)
         self.reset()
-
 
     def reset(self):
         # 恢复所有 UAV 初始状态
         for uav in self.uavs:
             uav.reset()
+        for task in self.tasks:
+            task.reset()
         # 重置环境状态
         self.current_target_idx = 0
         self.done = False
@@ -41,7 +45,6 @@ class UAVEnv:
         self.reward_history = []
 
         return self._get_state()
-
 
     def _normalize_uav(self, u):
         # 类型归一化 (1-3 -> 0-1)
@@ -100,14 +103,28 @@ class UAVEnv:
             return np.array(uav_states + task_state, dtype=np.float32)
         # 返回 UAV 状态和任务状态 Attention 输入格式
         if self.mode == "attention":
-            return np.array(uav_states, dtype=np.float32), np.array(task_state, dtype=np.float32)
+            return np.array(uav_states, dtype=np.float32), np.array(
+                task_state, dtype=np.float32
+            )
 
     def update_uav_status(self, uav, task):
         # 更新 UAV 状态
         uav.voyage -= calculate_voyage_distance(uav, task)
+        # 任务分配后的完成时间
+        task.waiting_time = uav.end_time
+        uav.end_time += calculate_voyage_time(uav, task)
+        task.end_time = uav.end_time
+        task.flag = True  # 标记任务已完成
+        if task.type == 3:  # 评估任务
+            task.target.total_time = task.end_time
+
         uav.location = task.location
         uav.ammunition -= task.ammunition
         uav.time -= task.time
+        if debug:
+            print(
+                f"task waiting time: {task.waiting_time}, end time: {task.end_time}"
+            )
         if debug:
             print(
                 f"UAV {uav.id} updated: location {uav.location}, ammunition {uav.ammunition}, time {uav.time}, voyage {uav.voyage}"
@@ -119,7 +136,7 @@ class UAVEnv:
         target = self.targets[self.current_target_idx]
         task = target.tasks[self.task_step[target.id]]
         choose_uav = self.uavs[action]
-        reward = calculate_reward(choose_uav, task, target)
+        reward = calculate_reward(choose_uav, task, target, self.max_total_voyage, self.max_total_time)
 
         if debug:
             print(
@@ -128,7 +145,6 @@ class UAVEnv:
 
         # 更新 UAV 状态
         self.update_uav_status(choose_uav, task)
-
         # 计算本次任务的航程
         voyage_distance = calculate_voyage_distance(choose_uav, task)
         self.total_voyage += voyage_distance
@@ -141,15 +157,15 @@ class UAVEnv:
             self.current_target_idx += 1
             if self.current_target_idx >= len(self.targets):
                 self.done = True
-                total_distance = calculate_all_voyage_distance(self.uavs)
-                reward -= (total_distance / 15000)
 
         # dqn 模块
         if self.mode == "dqn":
             next_state = None if self.done else self._get_state()
             return next_state, reward, self.done, info
-    
+
         # attention 模块
         if self.mode == "attention":
-            next_state_uav, next_state_task = (None, None) if self.done else self._get_state()
+            next_state_uav, next_state_task = (
+                (None, None) if self.done else self._get_state()
+            )
             return next_state_uav, next_state_task, reward, self.done, info
