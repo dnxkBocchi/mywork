@@ -25,7 +25,9 @@ class UAVEnv:
         self.max_voyage = max(u.voyage for u in uavs) or 1
         self.max_speed = max(u.speed for u in uavs) or 1
         # 后面奖励函数要用到
-        self.max_total_voyage, self.max_total_time = calculate_max_possible_voyage_time(self.uavs, self.targets)
+        self.max_total_voyage, self.max_total_time = calculate_max_possible_voyage_time(
+            self.uavs, self.targets
+        )
         self.reset()
 
     def reset(self):
@@ -86,7 +88,10 @@ class UAVEnv:
         # 将所有 UAV 归一化后状态 + 当前任务归一化后状态
         uav_states = []
         for u in self.uavs:
-            uav_states.extend(self._normalize_uav(u))
+            if self.mode == "dqn":
+                uav_states.extend(self._normalize_uav(u))
+            if self.mode == "attention":
+                uav_states.append(self._normalize_uav(u))
         target = self.targets[self.current_target_idx]
         task = target.tasks[self.task_step[target.id]]
         task_state = self._normalize_task(task)
@@ -122,9 +127,7 @@ class UAVEnv:
         uav.ammunition -= task.ammunition
         uav.time -= task.time
         if debug:
-            print(
-                f"task waiting time: {task.waiting_time}, end time: {task.end_time}"
-            )
+            print(f"task waiting time: {task.waiting_time}, end time: {task.end_time}")
         if debug:
             print(
                 f"UAV {uav.id} updated: location {uav.location}, ammunition {uav.ammunition}, time {uav.time}, voyage {uav.voyage}"
@@ -136,7 +139,9 @@ class UAVEnv:
         target = self.targets[self.current_target_idx]
         task = target.tasks[self.task_step[target.id]]
         choose_uav = self.uavs[action]
-        reward = calculate_reward(choose_uav, task, target, self.max_total_voyage, self.max_total_time)
+        reward = calculate_reward(
+            choose_uav, task, target, self.max_total_voyage, self.max_total_time
+        )
 
         if debug:
             print(

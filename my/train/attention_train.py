@@ -7,12 +7,12 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 
 from model.attention import AttentionDQN, AttentionReplayBuffer
-from calculate import calculate_all_voyage_distance
+from calculate import *
 
 
 def train_attention_dqn(
     env,
-    episodes=500,
+    episodes=200,
     batch_size=64,
     gamma=0.99,
     lr=1e-3,
@@ -25,7 +25,7 @@ def train_attention_dqn(
     num_tasks = sum(len(target.tasks) for target in env.targets)
     eps = eps_start
     uav_attr_dim, task_attr_dim = env.reset()
-    uav_attr_dim = len(uav_attr_dim)  # UAV特征维度
+    uav_attr_dim = len(uav_attr_dim[0])  # UAV特征维度
     task_attr_dim = len(task_attr_dim)  # 任务特征维度
     action_dim = len(env.uavs)
 
@@ -38,6 +38,7 @@ def train_attention_dqn(
 
     # 用于存储每集的总 reward
     rewards_per_episode = []
+    loss_per_episode = []
 
     # 训练循环示例
     for episode in range(episodes):
@@ -47,9 +48,11 @@ def train_attention_dqn(
         total_reward = 0
         total_success = 0
         total_distance = 0
+        total_time = 0
 
         done = False
         while not done:
+            loss_episode = []
             # 转换为Tensor
             uav_feat_tensor = torch.tensor(uav_features, dtype=torch.float32)
             task_feat_tensor = torch.tensor(task_feature, dtype=torch.float32)
@@ -59,9 +62,7 @@ def train_attention_dqn(
                 action = random.randint(0, action_dim - 1)
             else:
                 with torch.no_grad():
-                    q_values = dqn(
-                        uav_feat_tensor.unsqueeze(0), task_feat_tensor.unsqueeze(0)
-                    )
+                    q_values = dqn(uav_feat_tensor, task_feat_tensor)
                     action = q_values.argmax().item()
 
             # 执行动作
@@ -112,13 +113,15 @@ def train_attention_dqn(
                 )
                 # 计算损失
                 loss = F.mse_loss(current_q, target_q)
+                loss_episode.append(loss.item())
                 # 反向传播
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
-        # 每集结束，记录 total_r
-        rewards_per_episode.append(total_reward)
+        # 每集结束，记录 total_reward 和 loss
+        rewards_per_episode.append(total_reward / num_tasks)
+        loss_per_episode.append(np.mean(loss_episode))
         # 更新目标网络
         eps = max(eps_end, eps * eps_decay)
         if episode % 10 == 0:
@@ -126,9 +129,10 @@ def train_attention_dqn(
         total_reward /= num_tasks  # 平均每个任务的奖励
         total_success /= num_tasks  # 平均每个任务的成功率
         total_distance = calculate_all_voyage_distance(env.uavs)
+        total_time = calculate_all_voyage_time(env.targets)
         print(
             f"Episode {episode} | Total Reward: {total_reward:.2f} | Total Distance: {total_distance:.2f} | \
-Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
+Total Time: {total_time:.2f} | Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
         )
 
         # 每 50 轮绘制一次 reward 曲线
@@ -138,6 +142,14 @@ Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
             plt.xlabel("Episode")
             plt.ylabel("Total Reward")
             plt.title(f"Total Reward up to Episode {episode + 1}")
+            plt.grid(True)
+            plt.show()
+
+            plt.figure(figsize=(8, 4))
+            plt.plot(range(1, episode + 2), loss_per_episode, marker="o")
+            plt.xlabel("Episode")
+            plt.ylabel("Total Loss")
+            plt.title(f"Total Loss up to Episode {episode + 1}")
             plt.grid(True)
             plt.show()
 

@@ -27,7 +27,6 @@ class Particle:
             self.uavs, self.targets
         )
 
-
     def initialize(self, targets: List[Target]):
         """基于约束的动态优选初始化"""
         task_sequence = []
@@ -302,12 +301,15 @@ class HS_MOPSO:
                     new_p.print()
                 new_p = self._constraint_correction(new_p)
                 new_p.update_fitness()
+                if debug:
+                    new_p.print()
                 # 3. 保留优势解
                 if particle.fitness < new_p.fitness:
                     particle = new_p
             # 4. 更新帕累托解集
             for particle in self.population:
                 self._update_pareto_set(particle)
+            print("pareto set:", self.pareto_set)
 
             # 输出迭代信息
             particle = None

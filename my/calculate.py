@@ -104,7 +104,7 @@ def calculate_voyage_r(task, uav, max_total_voyage):
 
 
 def calculate_time_r(task, uav, max_total_time):
-    """"
+    """ "
     计算任务完成时间奖励：
     """
     voyage_time = calculate_voyage_time(uav, task)
@@ -139,7 +139,7 @@ def check_constraints(uav, task):
     for t in target.tasks:
         if t != task and t.flag == False:
             return False  # 前面任务未完成，不能执行
-        elif t == task: 
+        elif t == task:
             break  # 前面任务已完成
     # 航程约束
     distance = calculate_voyage_distance(uav, task)
@@ -148,7 +148,9 @@ def check_constraints(uav, task):
     return True
 
 
-def calculate_reward(uav, task, target, max_total_voyage, max_total_time, alpha=0.4, beta=0.3, gamma=0.3):
+def calculate_reward(
+    uav, task, target, max_total_voyage, max_total_time, alpha=0.4, beta=0.3, gamma=0.3
+):
     """
     综合三项指标计算最终 reward:
       reward = alpha * 任务无人机适配度

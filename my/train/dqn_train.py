@@ -82,7 +82,7 @@ def train_dqn(
                 optimizer.step()
 
         # 每集结束，记录 total_r
-        rewards_per_episode.append(total_reward)
+        rewards_per_episode.append(total_reward / num_tasks)
         eps = max(eps_end, eps * eps_decay)
         if ep % 10 == 0:
             target_net.load_state_dict(policy_net.state_dict())
