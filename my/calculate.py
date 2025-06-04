@@ -119,7 +119,7 @@ def check_constraints(uav, task):
     2. 弹药资源
     3. 时间资源
     4. 航程资源
-    5.
+    5. 时序要求
     """
     # 类型约束
     if task.type == 3 and uav.type != 3:
@@ -148,8 +148,29 @@ def check_constraints(uav, task):
     return True
 
 
+def adjust_weights_by_phase(
+    global_step, base_alpha, base_beta, base_gamma,
+    exploration_phase = 200, optimization_phase = 400
+):
+    """
+    根据训练阶段动态调整多目标权重：
+    - 探索期：侧重任务适配度与约束满足
+    - 优化期：平衡适配度与航程效率
+    - 收敛期：侧重整体时间效率
+    """
+    if global_step < exploration_phase:
+        # 探索期：优先学习可行解，适配度权重高
+        return base_alpha * 1.75, base_beta * 0.5, base_gamma * 0.5
+    elif global_step < optimization_phase:
+        # 优化期：平衡多目标
+        return base_alpha * 0.75, base_beta * 1.17, base_gamma * 1.17
+    else:
+        # 收敛期：侧重时间效率（适合紧急任务场景）
+        return base_alpha * 0.5, base_beta, base_gamma * 1.67
+    
+
 def calculate_reward(
-    uav, task, target, max_total_voyage, max_total_time, alpha=0.4, beta=0.3, gamma=0.3
+    uav, task, target, max_total_voyage, max_total_time, global_step=250, alpha=0.4, beta=0.3, gamma=0.3
 ):
     """
     综合三项指标计算最终 reward:
@@ -167,5 +188,10 @@ def calculate_reward(
     fit_r = calculate_fitness_r(task, uav)
     voyage_r = calculate_voyage_r(task, uav, max_total_voyage)
     time_r = calculate_time_r(task, uav, max_total_time)
+
+    # 根据训练阶段动态调整权重
+    alpha, beta, gamma = adjust_weights_by_phase(
+        global_step, alpha, beta, gamma
+    )
 
     return alpha * fit_r + beta * voyage_r + gamma * time_r

@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from calculate import *
+from model.greedy import *
 import os
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"  # 关键：ipynb 中绘图运行时避免报错
@@ -13,6 +14,7 @@ class UAVEnv:
         self.uavs = uavs
         self.targets = targets
         self.tasks = tasks
+        self.task = tasks[0]  # 当前任务
         self.map_size = map_size
         self.done = False
         self.mode = mode
@@ -41,6 +43,7 @@ class UAVEnv:
         self.done = False
         # 为每个 Target 初始化任务进度
         self.task_step = {t.id: 0 for t in self.targets}
+        self.task = self.tasks[0]  # 重置当前任务
 
         # 重置评估指标
         self.total_voyage = 0
@@ -107,7 +110,7 @@ class UAVEnv:
         if self.mode == "dqn":
             return np.array(uav_states + task_state, dtype=np.float32)
         # 返回 UAV 状态和任务状态 Attention 输入格式
-        if self.mode == "attention":
+        elif self.mode == "attention":
             return np.array(uav_states, dtype=np.float32), np.array(
                 task_state, dtype=np.float32
             )
@@ -133,14 +136,14 @@ class UAVEnv:
                 f"UAV {uav.id} updated: location {uav.location}, ammunition {uav.ammunition}, time {uav.time}, voyage {uav.voyage}"
             )
 
-    def step(self, action):
+    def step(self, action, ep=200):
         # action: 选择 UAV 索引
         info = {}
         target = self.targets[self.current_target_idx]
         task = target.tasks[self.task_step[target.id]]
         choose_uav = self.uavs[action]
         reward = calculate_reward(
-            choose_uav, task, target, self.max_total_voyage, self.max_total_time
+            choose_uav, task, target, self.max_total_voyage, self.max_total_time, ep
         )
 
         if debug:
@@ -162,14 +165,18 @@ class UAVEnv:
             self.current_target_idx += 1
             if self.current_target_idx >= len(self.targets):
                 self.done = True
+        self.task = (
+            self.tasks[self.current_target_idx]
+            if self.current_target_idx < len(self.tasks)
+            else None
+        )
 
         # dqn 模块
         if self.mode == "dqn":
             next_state = None if self.done else self._get_state()
             return next_state, reward, self.done, info
-
         # attention 模块
-        if self.mode == "attention":
+        elif self.mode == "attention":
             next_state_uav, next_state_task = (
                 (None, None) if self.done else self._get_state()
             )

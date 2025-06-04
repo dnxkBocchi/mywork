@@ -309,7 +309,7 @@ class HS_MOPSO:
             # 4. 更新帕累托解集
             for particle in self.population:
                 self._update_pareto_set(particle)
-            print("pareto set:", self.pareto_set)
+            # print("pareto set:", self.pareto_set)
 
             # 输出迭代信息
             particle = None
