@@ -14,7 +14,7 @@ class UAVEnv:
         self.uavs = uavs
         self.targets = targets
         self.tasks = tasks
-        self.task = tasks[0]  # 当前任务
+        self.task = None  # 当前任务
         self.map_size = map_size
         self.done = False
         self.mode = mode
@@ -43,7 +43,9 @@ class UAVEnv:
         self.done = False
         # 为每个 Target 初始化任务进度
         self.task_step = {t.id: 0 for t in self.targets}
-        self.task = self.tasks[0]  # 重置当前任务
+        # 重置当前任务
+        target = self.targets[self.current_target_idx]
+        self.task = target.tasks[self.task_step[target.id]]
 
         # 重置评估指标
         self.total_voyage = 0
@@ -91,7 +93,7 @@ class UAVEnv:
         # 将所有 UAV 归一化后状态 + 当前任务归一化后状态
         uav_states = []
         for u in self.uavs:
-            if self.mode == "dqn":
+            if self.mode == "dqn" or self.mode == "my_dqn":
                 uav_states.extend(self._normalize_uav(u))
             if self.mode == "attention":
                 uav_states.append(self._normalize_uav(u))
@@ -107,7 +109,7 @@ class UAVEnv:
             print(f"task_state: [{ts}], task_state_len: {len(task_state)}")
 
         # 返回 UAV 状态和任务状态 DQN 输入格式
-        if self.mode == "dqn":
+        if self.mode == "dqn" or self.mode == "my_dqn":
             return np.array(uav_states + task_state, dtype=np.float32)
         # 返回 UAV 状态和任务状态 Attention 输入格式
         elif self.mode == "attention":
@@ -136,19 +138,19 @@ class UAVEnv:
                 f"UAV {uav.id} updated: location {uav.location}, ammunition {uav.ammunition}, time {uav.time}, voyage {uav.voyage}"
             )
 
-    def step(self, action, ep=200):
+    def step(self, action, ep=100):
         # action: 选择 UAV 索引
         info = {}
         target = self.targets[self.current_target_idx]
-        task = target.tasks[self.task_step[target.id]]
+        task = self.task
         choose_uav = self.uavs[action]
-        reward = calculate_reward(
-            choose_uav, task, target, self.max_total_voyage, self.max_total_time, ep
-        )
-
-        if debug:
-            print(
-                f"UAV {choose_uav.id} assigned to task {task.id} at target {target.id}."
+        if self.mode == "dqn":
+            reward = calculate_reward(
+                choose_uav, task, target, self.max_total_voyage, self.max_total_time
+            )
+        elif self.mode == "my_dqn":
+            reward = calculate_reward(
+                choose_uav, task, target, self.max_total_voyage, self.max_total_time, ep
             )
 
         # 更新 UAV 状态
@@ -165,14 +167,12 @@ class UAVEnv:
             self.current_target_idx += 1
             if self.current_target_idx >= len(self.targets):
                 self.done = True
-        self.task = (
-            self.tasks[self.current_target_idx]
-            if self.current_target_idx < len(self.tasks)
-            else None
-        )
+        if self.current_target_idx < len(self.targets):
+            target = self.targets[self.current_target_idx]
+            self.task = target.tasks[self.task_step[target.id]]
 
         # dqn 模块
-        if self.mode == "dqn":
+        if self.mode == "dqn" or self.mode == "my_dqn":
             next_state = None if self.done else self._get_state()
             return next_state, reward, self.done, info
         # attention 模块

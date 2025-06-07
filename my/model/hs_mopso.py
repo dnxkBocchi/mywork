@@ -20,6 +20,7 @@ class Particle:
         self.resources = []  # 资源消耗（打击任务消耗弹药，侦察/评估消耗时间）
         self.range = []  # 航程增加量
         self.reward = []  # 奖励
+        self.fitness_r = []
         self.fitness = None  # 适应度
         self.pbest = None  # 个体最优粒子
         self.archives = []  # 帕累托档案集（用于优势个体选择）
@@ -49,53 +50,50 @@ class Particle:
 
             while valid_uavs and not assigned:
                 uav = random.choice(valid_uavs)
-                round_trip = calculate_voyage_distance(uav, task)
-
                 # 检查约束
                 if not check_constraints(uav, task):
                     valid_uavs.remove(uav)
                     continue
                 # 分配任务
-                self.target_ids.append(task.target.id)  # 提取目标编号（如"T1"）
-                self.uav_ids.append(uav.id)
-                self.resources.append(task.ammunition if uav_type == 1 else task.time)
-                self.range.append(round_trip)
-                self.reward.append(
-                    calculate_reward(
-                        uav,
-                        task,
-                        task.target,
-                        self.max_total_voyage,
-                        self.max_total_time,
-                    )
-                )
-                # 更新无人机状态
-                self.env.update_uav_status(uav, task)
+                self.task_allocated(uav, task, uav_type)
                 assigned = True
 
             if not assigned:
                 uav = random.choice(self.uavs)  # 如果没有可用无人机，随机分配
-                round_trip = calculate_voyage_distance(uav, task)
                 # 分配任务
-                self.target_ids.append(task.target.id)  # 提取目标编号（如"T1"）
-                self.uav_ids.append(uav.id)
-                self.resources.append(task.ammunition if uav_type == 1 else task.time)
-                self.range.append(round_trip)
-                self.reward.append(
-                    calculate_reward(
-                        uav,
-                        task,
-                        task.target,
-                        self.max_total_voyage,
-                        self.max_total_time,
-                    )
-                )
-                # 更新无人机状态
-                self.env.update_uav_status(uav, task)
+                self.task_allocated(uav, task, uav_type)
 
         # 恢复无人机初始状态（避免影响其他粒子）
         self.env.reset()
         self.update_fitness()
+
+    def reset(self):
+        self.range = []
+        self.reward = []
+        self.resources = []
+        self.fitness_r = []
+
+    def task_allocated(self, uav, task, uav_type):
+        """基于约束的任务分配"""
+        # 分配任务
+        self.target_ids.append(task.target.id)  # 提取目标编号（如"T1"）
+        self.uav_ids.append(uav.id)
+        self.resources.append(task.ammunition if uav_type == 1 else task.time)
+        round_trip = calculate_voyage_distance(uav, task)
+        fitness_r = calculate_fitness_r(task, uav)
+        self.fitness_r.append(fitness_r)
+        self.range.append(round_trip)
+        self.reward.append(
+            calculate_reward(
+                uav,
+                task,
+                task.target,
+                self.max_total_voyage,
+                self.max_total_time,
+            )
+        )
+        # 更新无人机状态
+        self.env.update_uav_status(uav, task)
 
     def update_fitness(self):
         """计算三目标函数值（f1:总奖励）"""
@@ -109,6 +107,7 @@ class Particle:
         new_particle.uav_ids = self.uav_ids.copy()
         new_particle.resources = self.resources.copy()
         new_particle.range = self.range.copy()
+        new_particle.fitness_r = self.fitness_r.copy()
         new_particle.reward = self.reward.copy()
         new_particle.fitness = self.fitness
         return new_particle
@@ -276,12 +275,12 @@ class HS_MOPSO:
                 )
 
         # 2. 重新计算资源和时间
-        p.range = []
+        p.reset()
+        self.env.reset()  # 重置环境状态
         for i in range(len(p.target_ids)):
             uav = next(u for u in self.uavs if u.id == p.uav_ids[i])
             task = self.tasks[i]
-            distance = calculate_voyage_distance(uav, task)
-            p.range.append(distance)  # 往返航程
+            p.task_allocated(uav, task, task.type)
         return p
 
     # 主优化循环
@@ -316,14 +315,17 @@ class HS_MOPSO:
             for p in self.pareto_set:
                 if particle is None or p.fitness > particle.fitness:
                     particle = p
-            reward = sum(particle.reward) / len(particle.reward)
-            distance = sum(particle.range)
+            total_reward = sum(particle.reward) / len(particle.reward)
+            total_fitness = sum(particle.fitness_r) / len(particle.fitness_r)
+            total_distance = sum(particle.range)
             total_time = calculate_all_voyage_time(self.targets)
-            success_rate = 0
+            total_success = 0
             for pr in p.reward:
                 if pr > 0:
-                    success_rate += 1
-            success_rate /= len(p.reward)
+                    total_success += 1
+            total_success /= len(p.reward)
             print(
-                f"Iter {self.iter_count+1}, Average Reward: {reward:.2f}, Total Distance: {distance:.2f}, Total Time: {total_time:.2f}, Success Rate: {success_rate:.2f}"
+                f"Iter {self.iter_count+1}, Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
+| Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
+| Total Success : {total_success:.2f}"
             )

@@ -45,6 +45,7 @@ class Uav:
         self.speed = round(speed, 2)
         self.value = round(value, 2)
         self.end_time = 0.0  # 任务结束时间
+        self.idx = None  # 无人机索引，初始化为None
 
         # 保存一份初始状态
         self._init_location = location

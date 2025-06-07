@@ -5,7 +5,7 @@ import random
 # 添加项目根目录到 sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from my.calculate import calculate_all_voyage_distance
+from my.calculate import *
 
 
 def random_allocation(env):
@@ -24,6 +24,7 @@ def random_allocation(env):
     total_reward = 0
     total_success = 0
     total_distance = 0
+    total_fitness = 0
 
     while not done:
         # 获取当前任务
@@ -41,14 +42,19 @@ def random_allocation(env):
         index = uavs.index(uav)
         next_state, reward, done, info = env.step(index)
         total_reward += reward
+        total_fitness += calculate_fitness_r(task, uav)
         if reward > 0:
             total_success += 1
 
-
     total_reward /= num_tasks  # 平均每个任务的奖励
     total_success /= num_tasks  # 平均每个任务的成功率
+    total_fitness /= num_tasks  # 平均适配度
     total_distance = calculate_all_voyage_distance(env.uavs)
-    print(f"Total Reward: {total_reward:.2f} | Total Distance: {total_distance:.2f} | Total Success : {total_success} ")
-    print("Allocation History:")
+    total_time = calculate_all_voyage_time(env.targets)
+    print(
+        f"Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
+| Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
+| Total Success : {total_success:.2f}"
+    )
     for task_id, uav_id in allocation_history:
         print(f"Task {task_id} assigned to UAV {uav_id}")

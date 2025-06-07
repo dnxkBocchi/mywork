@@ -53,6 +53,7 @@ def train_dqn(
         total_success = 0
         total_distance = 0
         total_time = 0
+        total_fitness = 0
 
         done = False
         while not done:
@@ -69,7 +70,9 @@ def train_dqn(
                     q_vals = policy_net(torch.tensor(state).unsqueeze(0))
                     action = q_vals.argmax().item()
             # my greedy dqn 加了个 ep 用来动态调整 reward
+            fitness = calculate_fitness_r(env.task, env.uavs[action])
             next_state, reward, done, _ = env.step(action, ep)
+            total_fitness += fitness
             if reward > 0:
                 total_success += 1
             buffer.push(
@@ -108,6 +111,7 @@ def train_dqn(
             target_net.load_state_dict(policy_net.state_dict())
         total_reward /= num_tasks  # 平均每个任务的奖励
         total_success /= num_tasks  # 平均每个任务的成功率
+        total_fitness /= num_tasks
         total_distance = calculate_all_voyage_distance(env.uavs)
         total_time = calculate_all_voyage_time(env.targets)
 
@@ -119,12 +123,15 @@ def train_dqn(
             # 新增：记录每集数据到文件
             with open(log_file, "a") as f:
                 f.write(
-                    f"{ep},{total_reward:.4f},{total_success:.4f},{total_distance:.2f},{total_time:.2f},{eps:.4f}\n"
+                    f"Episode {ep} | Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
+| Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
+| Total Success : {total_success:.2f} | Epsilon: {eps:.3f}\n"
                 )
 
         print(
-            f"Episode {ep} | Total Reward: {total_reward:.2f} | Total Distance: {total_distance:.2f} | \
-Total Time: {total_time:.2f} | Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
+            f"Episode {ep} | Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
+| Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
+| Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
         )
 
         # 每 50 轮绘制一次 reward 曲线

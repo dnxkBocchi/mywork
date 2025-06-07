@@ -83,14 +83,14 @@ def calculate_fitness_r(task, uav):
     """
     # 能力匹配程度 = min( uav.capacity / task.requirement ) 取平均
     factors = []
-    if task.type == 1:  # 打击
+    if task.type == 1 and uav.type == 1:  # 打击
         factors.append(min(uav.strike / task.strike, 1))
-    if task.type == 2:  # 侦察
+    if task.type == 2 and uav.type == 2:  # 侦察
         factors.append(min(uav.reconnaissance / task.reconnaissance, 1))
-    if task.type == 3:  # 评估
+    if task.type == 3 and uav.type == 3:  # 评估
         factors.append(min(uav.assessment / task.assessment, 1))
     # 多能力取平均（兼顾多需求的任务）
-    factor = sum(factors) / len(factors)
+    factor = sum(factors) / len(factors) if factors else 0
     return factor
 
 
@@ -149,8 +149,12 @@ def check_constraints(uav, task):
 
 
 def adjust_weights_by_phase(
-    global_step, base_alpha, base_beta, base_gamma,
-    exploration_phase = 200, optimization_phase = 400
+    global_step,
+    base_alpha,
+    base_beta,
+    base_gamma,
+    exploration_phase=200,
+    optimization_phase=400,
 ):
     """
     根据训练阶段动态调整多目标权重：
@@ -160,17 +164,25 @@ def adjust_weights_by_phase(
     """
     if global_step < exploration_phase:
         # 探索期：优先学习可行解，适配度权重高
-        return base_alpha * 1.75, base_beta * 0.5, base_gamma * 0.5
+        return base_alpha, base_beta, base_gamma
     elif global_step < optimization_phase:
         # 优化期：平衡多目标
-        return base_alpha * 0.75, base_beta * 1.17, base_gamma * 1.17
+        return base_alpha * 0.75, base_beta * 2, base_gamma
     else:
         # 收敛期：侧重时间效率（适合紧急任务场景）
-        return base_alpha * 0.5, base_beta, base_gamma * 1.67
-    
+        return base_alpha * 0.5, base_beta, base_gamma * 4.5
+
 
 def calculate_reward(
-    uav, task, target, max_total_voyage, max_total_time, global_step=250, alpha=0.4, beta=0.3, gamma=0.3
+    uav,
+    task,
+    target,
+    max_total_voyage,
+    max_total_time,
+    global_step=100,
+    alpha=0.7,
+    beta=0.2,
+    gamma=0.1,
 ):
     """
     综合三项指标计算最终 reward:
@@ -190,8 +202,6 @@ def calculate_reward(
     time_r = calculate_time_r(task, uav, max_total_time)
 
     # 根据训练阶段动态调整权重
-    alpha, beta, gamma = adjust_weights_by_phase(
-        global_step, alpha, beta, gamma
-    )
+    alpha, beta, gamma = adjust_weights_by_phase(global_step, alpha, beta, gamma)
 
     return alpha * fit_r + beta * voyage_r + gamma * time_r
