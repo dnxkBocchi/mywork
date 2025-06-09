@@ -104,7 +104,7 @@ def calculate_voyage_r(task, uav, max_total_voyage):
 
 
 def calculate_time_r(task, uav, max_total_time):
-    """ "
+    """
     计算任务完成时间奖励：
     """
     voyage_time = calculate_voyage_time(uav, task)
@@ -153,8 +153,8 @@ def adjust_weights_by_phase(
     base_alpha,
     base_beta,
     base_gamma,
-    exploration_phase=200,
-    optimization_phase=400,
+    exploration_phase=100,
+    optimization_phase=200,
 ):
     """
     根据训练阶段动态调整多目标权重：

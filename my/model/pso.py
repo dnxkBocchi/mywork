@@ -6,7 +6,7 @@ import os
 
 # 添加项目根目录到 sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
-from my.calculate import calculate_fitness, calculate_max_possible_voyage
+from my.calculate import *
 
 debug = False  # 是否打印调试信息
 
@@ -20,7 +20,6 @@ class Particle:
         """
         self.num_tasks = num_tasks
         self.num_uavs = num_uavs
-
         # 位置向量：每个任务分配给哪个无人机
         self.position = np.random.randint(0, num_uavs, size=num_tasks)
         # 速度向量：位置更新的变化量
@@ -88,19 +87,16 @@ class PSO:
         # 获取任务和无人机数量
         self.num_tasks = sum(len(target.tasks) for target in env.targets)
         self.num_uavs = len(env.uavs)
-
         # 初始化粒子群
         self.particles = [
             Particle(self.num_tasks, self.num_uavs) for _ in range(num_particles)
         ]
-
         # 全局最优位置和适应度
+        self.gbest = None
         self.gbest_position = None
         self.gbest_fitness = float("-inf")
-
         # 计算理论最大航程用于归一化
-        self.max_possible_voyage = calculate_max_possible_voyage(env.uavs, env.targets)
-
+        self.max_possible_voyage, _ = calculate_max_possible_voyage_time(env.uavs, env.targets)
         # 初始化全局最优
         self._initialize_gbest()
 
@@ -120,39 +116,45 @@ class PSO:
                 self.gbest_fitness = fitness
                 self.gbest_position = particle.position.copy()
 
-    def _evaluate_particle(self, particle):
+    def _evaluate_particle(self, particle, flag=False):
         """
         评估粒子的适应度（任务分配方案的优劣）
         :param particle: 粒子
         :return: 适应度值
         """
         # 重置环境
-        state = self.env.reset()
+        self.env.reset()
         done = False
         step = 0
+        total_success = 0.0
+        total_reward = 0.0
+        total_fitness = 0.0
 
         # 按粒子的分配方案执行任务
         while not done and step < self.num_tasks:
             # 获取当前任务应该分配的无人机索引
             uav_index = particle.position[step]
+            step += 1
             # 执行动作
             next_state, reward, done, _ = self.env.step(uav_index)
-            step += 1
+            if reward > 0:
+                total_success += 1
+            total_reward += reward
+            total_fitness += calculate_fitness_r(self.env.task, self.env.uavs[uav_index])
 
         # 计算任务适配度（所有任务的平均适配度）
-        avg_reward = sum(self.env.reward_history) / self.num_tasks
-
-        # 计算归一化的总航程（越小越好）
-        normalized_voyage = min(self.env.total_voyage / self.max_possible_voyage, 1.0)
-
-        # 综合评分（可调整权重）
-        alpha = 1.0  # 任务适配度权重
-        beta = 1  # 任务适配度权重
-        gamma = 0.2  # 航程权重
-
-        # 注意：航程是越小越好，所以用1减去归一化航程
-        fitness = alpha * avg_reward
-        return fitness
+        total_reward /= self.num_tasks
+        if flag == True:
+            total_success /= self.num_tasks
+            total_fitness /= self.num_tasks
+            total_distance = calculate_all_voyage_distance(self.env.uavs)
+            total_time = calculate_all_voyage_time(self.env.targets)
+            print(
+                f"Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
+| Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
+| Total Success : {total_success:.2f}"
+            )
+        return total_reward
 
     def optimize(self):
         """执行粒子群优化"""
@@ -162,24 +164,17 @@ class PSO:
                 # 更新速度和位置
                 particle.update_velocity(self.gbest_position, self.w, self.c1, self.c2)
                 particle.update_position()
-
                 # 评估新位置的适应度
                 fitness = self._evaluate_particle(particle)
-
                 # 更新个体最优
                 if fitness > particle.pbest_fitness:
                     particle.pbest_fitness = fitness
                     particle.pbest_position = particle.position.copy()
-
                 # 更新全局最优
                 if fitness > self.gbest_fitness:
+                    self.gbest = particle
                     self.gbest_fitness = fitness
                     self.gbest_position = particle.position.copy()
-
-            # 打印进度
-            print(
-                f"Iteration {iteration+1}/{self.max_iter} - Best Fitness: {self.gbest_fitness:.4f}, position: {self.gbest_position.tolist()}"
-            )
-
+            self._evaluate_particle(self.gbest, True)  # 打印全局最优信息
         # 返回最优解
         return self.gbest_position, self.gbest_fitness

@@ -19,10 +19,6 @@ class UAVEnv:
         self.done = False
         self.mode = mode
 
-        # 新增：用于评估的属性
-        self.total_voyage = 0  # 总航程
-        self.reward_history = []  # 奖励历史
-
         self.max_ammo = max(u.ammunition for u in uavs) or 1
         self.max_voyage = max(u.voyage for u in uavs) or 1
         self.max_speed = max(u.speed for u in uavs) or 1
@@ -46,10 +42,6 @@ class UAVEnv:
         # 重置当前任务
         target = self.targets[self.current_target_idx]
         self.task = target.tasks[self.task_step[target.id]]
-
-        # 重置评估指标
-        self.total_voyage = 0
-        self.reward_history = []
 
         return self._get_state()
 
@@ -152,14 +144,8 @@ class UAVEnv:
             reward = calculate_reward(
                 choose_uav, task, target, self.max_total_voyage, self.max_total_time, ep
             )
-
         # 更新 UAV 状态
         self.update_uav_status(choose_uav, task)
-        # 计算本次任务的航程
-        voyage_distance = calculate_voyage_distance(choose_uav, task)
-        self.total_voyage += voyage_distance
-        # 计算奖励
-        self.reward_history.append(reward)
 
         # 推进该 target 内任务
         self.task_step[target.id] += 1
