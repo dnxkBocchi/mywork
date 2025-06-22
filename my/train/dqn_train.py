@@ -58,13 +58,16 @@ def train_dqn(
         done = False
         while not done:
             if random.random() < eps:
-                # action = random.randrange(action_dim)
-                # my greedy dqn
-                actions = []
-                actions.append(select_uav_by_matching(env.task, env.uavs))
-                actions.append(select_uav_by_voyage(env.task, env.uavs))
-                actions.append(select_uav_by_time(env.task, env.uavs))
-                action = random.choice(actions)
+                if env.mode == "dqn":
+                    # DQN 选择动作
+                    action = random.randrange(action_dim)
+                else:
+                    # my greedy dqn
+                    actions = []
+                    actions.append(select_uav_by_matching(env.task, env.uavs))
+                    actions.append(select_uav_by_voyage(env.task, env.uavs))
+                    actions.append(select_uav_by_time(env.task, env.uavs))
+                    action = random.choice(actions)
             else:
                 with torch.no_grad():
                     q_vals = policy_net(torch.tensor(state).unsqueeze(0))

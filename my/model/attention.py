@@ -173,3 +173,19 @@ class AttentionReplayBuffer:
 
     def __len__(self):
         return len(self.buffer)
+
+
+"""
+运行 AttentionDQN 优化
+"""
+# import torch
+# # 全局设置（推荐）
+# torch.set_printoptions(
+#     threshold=float('inf'),  # 禁用省略，显示所有元素
+#     edgeitems=5,             # 触发省略时首尾显示5个元素（仅当threshold未设为inf时有效）
+#     precision=6,             # 浮点数保留6位小数
+#     linewidth=200            # 每行最大宽度200字符（避免换行过多）
+# )
+
+# from train.attention_train import train_attention_dqn
+# model = train_attention_dqn(env)

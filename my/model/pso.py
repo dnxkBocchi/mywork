@@ -96,7 +96,9 @@ class PSO:
         self.gbest_position = None
         self.gbest_fitness = float("-inf")
         # 计算理论最大航程用于归一化
-        self.max_possible_voyage, _ = calculate_max_possible_voyage_time(env.uavs, env.targets)
+        self.max_possible_voyage, _ = calculate_max_possible_voyage_time(
+            env.uavs, env.targets
+        )
         # 初始化全局最优
         self._initialize_gbest()
 
@@ -135,12 +137,14 @@ class PSO:
             # 获取当前任务应该分配的无人机索引
             uav_index = particle.position[step]
             step += 1
+            total_fitness += calculate_fitness_r(
+                self.env.task, self.env.uavs[uav_index]
+            )
             # 执行动作
             next_state, reward, done, _ = self.env.step(uav_index)
             if reward > 0:
                 total_success += 1
             total_reward += reward
-            total_fitness += calculate_fitness_r(self.env.task, self.env.uavs[uav_index])
 
         # 计算任务适配度（所有任务的平均适配度）
         total_reward /= self.num_tasks

@@ -203,3 +203,16 @@ def initialize_targets(tasks: List[Task]) -> List[Target]:
         t3.target = target
         targets.append(target)
     return targets
+
+
+def load_different_scale_csv(
+    uav_csv: str, task_csv: str, size: int = 5
+) -> Tuple[List[Uav], List[Task], List[Target]]:
+    """
+    加载不同规模的无人机和任务数据
+    """
+    uavs = load_uavs(uav_csv)
+    tasks = load_tasks(task_csv)
+    targets = initialize_targets(tasks)
+    # 根据 size 参数截取数据
+    return uavs[:size], tasks[:size*3], targets[:size]

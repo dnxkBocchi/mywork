@@ -61,6 +61,7 @@ def calculate_max_possible_voyage_time(uavs, targets):
     # 对每个无人机，计算其可能的最大航程
     for uav in uavs:
         current_pos = uav.location
+        current_voyage = 0
         # 计算从当前位置到所有任务点的往返距离
         for task_location in all_task_locations:
             # 到任务点的距离
@@ -68,8 +69,9 @@ def calculate_max_possible_voyage_time(uavs, targets):
                 task_location[0] - current_pos[0], task_location[1] - current_pos[1]
             )
             # 假设完成任务后不返回该位置（模拟最坏情况）
-            max_voyage += distance_to_task
+            current_voyage += distance_to_task
             current_pos = task_location  # 更新当前位置
+        max_voyage = max(max_voyage, current_voyage)
     min_speed = min(uav.speed for uav in uavs) if uavs else 1
     max_total_time = max_voyage / min_speed  # 最小速度下的最大时间
     return max_voyage, max_total_time

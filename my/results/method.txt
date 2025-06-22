@@ -1,14 +1,26 @@
-ga:
-Total Reward: 0.83 | Total Fitness: 0.95 | Total Distance: 1415.54 | Total Time: 805.24 | Total Success : 0.87
-pso:
-Total Reward: 0.58 | Total Fitness: 0.16 | Total Distance: 1359.35 | Total Time: 807.29 | Total Success : 0.60
-mopso:
-Total Reward: 0.77 | Total Fitness: 0.89 | Total Distance: 1373.74 | Total Time: 845.09 | Total Success : 0.80
-rr:
+min: random, rr, ga, pso, mopso, dqn, mydqn
+Total Reward: 0.18 | Total Fitness: 0.24 | Total Distance: 673.79 | Total Time: 524.81 | Total Success : 0.20
+Total Reward: 0.67 | Total Fitness: 0.94 | Total Distance: 726.45 | Total Time: 518.38 | Total Success : 0.73
+Total Reward: 0.74 | Total Fitness: 0.94 | Total Distance: 748.42 | Total Time: 518.38 | Total Success : 0.80
+Total Reward: 0.68 | Total Fitness: 0.69 | Total Distance: 726.04 | Total Time: 412.18 | Total Success : 0.73
+Total Reward: 0.67 | Total Fitness: 0.67 | Total Distance: 719.27 | Total Time: 391.46 | Total Success : 0.73
+Total Reward: 0.80 | Total Fitness: 0.82 | Total Distance: 686.86 | Total Time: 437.81 | Total Success : 0.87
+Total Reward: 0.78 | Total Fitness: 0.82 | Total Distance: 678.76 | Total Time: 423.35 | Total Success : 0.87
+
+middle:
+Total Reward: 0.06 | Total Fitness: 0.22 | Total Distance: 1399.88 | Total Time: 688.00 | Total Success : 0.07
 Total Reward: 0.70 | Total Fitness: 0.95 | Total Distance: 1389.09 | Total Time: 813.78 | Total Success : 0.73
-random:
-Total Reward: 0.07 | Total Fitness: 0.38 | Total Distance: 1371.31 | Total Time: 848.40 | Total Success : 0.07
-dqn:
-Total Reward: 0.96 | Total Fitness: 0.95 | Total Distance: 1309.82 | Total Time: 758.89 | Total Success : 1.00
-mydqn:
-Total Reward: 0.98 | Total Fitness: 0.94 | Total Distance: 1346.72 | Total Time: 725.54 | Total Success : 1.00
+Total Reward: 0.83 | Total Fitness: 0.95 | Total Distance: 1382.14 | Total Time: 753.85 | Total Success : 0.87
+Total Reward: 0.67 | Total Fitness: 0.69 | Total Distance: 1326.96 | Total Time: 775.86 | Total Success : 0.70
+Total Reward: 0.79 | Total Fitness: 0.87 | Total Distance: 1361.79 | Total Time: 771.74 | Total Success : 0.83
+Total Reward: 0.96 | Total Fitness: 0.95 | Total Distance: 1333.34 | Total Time: 755.62 | Total Success : 1.00
+Total Reward: 0.94 | Total Fitness: 0.95 | Total Distance: 1311.67 | Total Time: 725.54 | Total Success : 1.00
+
+max:
+Total Reward: 0.08 | Total Fitness: 0.21 | Total Distance: 2951.82 | Total Time: 1754.32 | Total Success : 0.08
+Total Reward: 0.73 | Total Fitness: 0.94 | Total Distance: 2827.78 | Total Time: 1656.29 | Total Success : 0.75
+Total Reward: 0.76 | Total Fitness: 0.94 | Total Distance: 2861.04 | Total Time: 1616.42 | Total Success : 0.78
+Total Reward: 0.52 | Total Fitness: 0.57 | Total Distance: 2772.75 | Total Time: 1615.50 | Total Success : 0.53
+Total Reward: 0.83 | Total Fitness: 0.81 | Total Distance: 2814.38 | Total Time: 1670.03 | Total Success : 0.85
+Total Reward: 0.85 | Total Fitness: 0.90 | Total Distance: 2813.79 | Total Time: 1687.09 | Total Success : 0.87
+Total Reward: 0.78 | Total Fitness: 0.93 | Total Distance: 2693.71 | Total Time: 1551.10 | Total Success : 0.82
