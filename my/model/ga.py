@@ -1,8 +1,6 @@
 import numpy as np
 import random
 from calculate import *
-from env import Uav, Task, Target
-from runEnv import UAVEnv
 
 
 class GeneticAlgorithmScheduler:
@@ -41,6 +39,7 @@ class GeneticAlgorithmScheduler:
         self.crossover_rate = crossover_rate
         self.mutation_rate = mutation_rate
         self.max_generations = max_generations
+        self.count = 0
 
         # 初始化种群
         self.population = self._initialize_population()
@@ -93,6 +92,11 @@ class GeneticAlgorithmScheduler:
 | Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
 | Total Success : {total_success:.2f}"
             )
+            self.count += 1
+            if (self.count == self.max_generations):
+                log_total_method(
+                    total_reward, total_fitness, total_distance, total_time, total_success
+                )
         return total_reward
 
     def _selection(self) -> list[np.ndarray]:
@@ -159,5 +163,6 @@ class GeneticAlgorithmScheduler:
             print(
                 f"Generation {generation+1}/{self.max_generations} | Best Fitness: {best_fitness:.4f}"
             )
+        log_all_voyage_time(self.uavs, self.targets)
 
         return best_individual, best_fitness

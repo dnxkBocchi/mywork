@@ -7,10 +7,43 @@ import torch.optim as optim
 import matplotlib.pyplot as plt
 import os
 from datetime import datetime
+from collections import deque
 
-from model.dqn import DQN, ReplayBuffer
 from calculate import *
 from model.greedy import *
+
+
+# DQN 网络结构
+class DQN(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(DQN, self).__init__()
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, output_dim),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+# 经验回放
+class ReplayBuffer:
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)
+
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))
+
+    def sample(self, batch_size):
+        batch = random.sample(self.buffer, batch_size)
+        s, a, r, s2, d = zip(*batch)
+        return np.stack(s), a, r, s2, d
+
+    def __len__(self):
+        return len(self.buffer)
 
 
 def train_dqn(
@@ -28,7 +61,7 @@ def train_dqn(
     # 新增：创建保存目录（如果不存在）
     os.makedirs(save_dir, exist_ok=True)
     # 新增：初始化最优指标追踪变量
-    best_total_reward = -float("inf")
+    best_total_reward = float("inf")
     # 新增：创建数据日志文件（带时间戳避免覆盖）
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = os.path.join(save_dir, f"training_log_{timestamp}.txt")
@@ -45,6 +78,8 @@ def train_dqn(
 
     # 用于存储每集的总 reward
     rewards_per_episode = []
+    voyage = []
+    time = []
 
     for ep in range(episodes):
         state = env.reset()
@@ -119,8 +154,8 @@ def train_dqn(
         total_time = calculate_all_voyage_time(env.targets)
 
         # 新增：更新最优指标
-        if total_reward > best_total_reward:
-            best_total_reward = total_reward
+        if total_distance + total_time < best_total_reward and total_success > 0.8:
+            best_total_reward = total_distance + total_time
             # 新增：保存最优模型
             torch.save(policy_net.state_dict(), os.path.join(save_dir, model_name))
             # 新增：记录每集数据到文件
@@ -131,14 +166,27 @@ def train_dqn(
 | Total Success : {total_success:.2f} | Epsilon: {eps:.3f}\n"
                 )
 
-        print(
-            f"Episode {ep} | Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
-| Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
-| Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
-        )
+            voyage = []
+            time = []
+            for uav in env.uavs:
+                distance = uav._init_voyage - uav.voyage
+                distance += calculate_back_voyage(uav)
+                voyage.append(distance)
+            for target in env.targets:
+                time.append(target.total_time)
+            log_all_voyage_time(env.uavs, env.targets)
+            log_total_method(
+                total_reward, total_fitness, total_distance, total_time, total_success
+            )
 
-        # 每 50 轮绘制一次 reward 曲线
-        if (ep + 1) % 50 == 0:
+        #         print(
+        #             f"Episode {ep} | Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
+        # | Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
+        # | Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
+        #         )
+
+        # 每 100 轮绘制一次 reward 曲线
+        if (ep + 1) % 100 == 0:
             plt.figure(figsize=(8, 4))
             plt.plot(range(1, ep + 2), rewards_per_episode, marker="o")
             plt.xlabel("Episode")
@@ -147,4 +195,74 @@ def train_dqn(
             plt.grid(True)
             plt.show()
 
+    with open("plt/train_time_voyage.txt", "a", encoding="utf-8") as f:
+        f.write("voyage: ")
+        for v in voyage:
+            f.write(f"{v:.2f}, ")
+        f.write("\ntime: ")  # 每组数据后换行
+        for t in time:
+            # 记录每组数据
+            f.write(f"{t:.2f}, ")
+        f.write("\n")  # 每组数据后换行
+
     return policy_net
+
+
+def test_dqn(
+    env,
+    model_path="./results/dqn_model.pth",  # 保存的模型路径
+    test_episodes=10,  # 测试轮数
+):
+    # 1. 初始化环境和模型
+    state_dim = len(env.reset())  # 获取状态维度（与训练时一致）
+    action_dim = len(env.uavs)  # 获取动作维度（与训练时一致）
+    voyage = []
+    time = []
+
+    # 2. 构建与训练时相同结构的DQN网络
+    policy_net = DQN(state_dim, action_dim)
+
+    # 3. 加载保存的模型权重
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"模型文件不存在: {model_path}")
+    policy_net.load_state_dict(torch.load(model_path))
+    policy_net.eval()  # 切换到评估模式（禁用训练相关层）
+
+    # 4. 运行测试
+    for ep in range(test_episodes):
+        state = env.reset()  # 重置环境
+        total_reward = 0
+        total_success = 0
+        total_fitness = 0
+        num_tasks = sum(len(target.tasks) for target in env.targets)  # 任务总数
+
+        done = False
+        while not done:
+            # 测试时不使用探索，直接用模型选最优动作
+            with torch.no_grad():  # 禁用梯度计算，加速推理
+                q_vals = policy_net(
+                    torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+                )
+                action = q_vals.argmax().item()  # 选择Q值最大的动作
+            # 执行动作并获取反馈
+            fitness = calculate_fitness_r(env.task, env.uavs[action])
+            next_state, reward, done, _ = env.step(action)
+            total_fitness += fitness
+            state = next_state
+            total_reward += reward
+            if reward > 0:  # 假设正奖励表示任务成功
+                total_success += 1
+
+        # 计算每轮测试指标
+        total_success = total_success / num_tasks
+        total_reward = total_reward / num_tasks
+        total_fitness = total_fitness / num_tasks
+        total_distance = calculate_all_voyage_distance(
+            env.uavs
+        )  # 复用训练时的距离计算函数
+        total_time = calculate_all_voyage_time(env.targets)  # 复用训练时的时间计算函数
+
+        log_all_voyage_time(env.uavs, env.targets)
+        log_total_method(
+            total_reward, total_fitness, total_distance, total_time, total_success
+        )

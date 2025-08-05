@@ -70,7 +70,9 @@ def round_robin_allocation(env):
 | Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
 | Total Success : {total_success:.2f}"
     )
+    log_all_voyage_time(env.uavs, env.targets)
+    log_total_method(total_reward, total_fitness, total_distance, total_time, total_success)
 
-    print("Allocation History:")
-    for task_id, uav_id in allocation_history:
-        print(f"Task {task_id} assigned to UAV {uav_id}")
+    # print("Allocation History:")
+    # for task_id, uav_id in allocation_history:
+    #     print(f"Task {task_id} assigned to UAV {uav_id}")

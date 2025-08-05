@@ -31,7 +31,6 @@ class Uav:
         time: float,
         voyage: float,
         speed: float,
-        value: float,
     ):
         self.id = id
         self.type = type
@@ -43,7 +42,6 @@ class Uav:
         self.time = round(time, 2)
         self.voyage = round(voyage, 2)
         self.speed = round(speed, 2)
-        self.value = round(value, 2)
         self.end_time = 0.0  # 任务结束时间
         self.idx = None  # 无人机索引，初始化为None
 
@@ -86,7 +84,6 @@ class Task:
         assessment: float,
         ammunition: int,
         time: float,
-        value: float,
     ):
         self.id = id
         self.type = type
@@ -96,7 +93,6 @@ class Task:
         self.assessment = round(assessment, 2)
         self.ammunition = ammunition
         self.time = round(time, 2)
-        self.value = round(value, 2)
         self.waiting_time = 0.0  # 任务等待时间
         self.end_time = 0.0  # 任务结束时间
         self.target = None  # 任务所属目标对象，初始化为None
@@ -150,7 +146,6 @@ def load_uavs(csv_path: str) -> List[Uav]:
             time=float(row["time"]),
             voyage=float(row["voyage"]),
             speed=float(row["speed"]),
-            value=float(row["value"]),
         )
         uavs.append(uav)
     return uavs
@@ -169,7 +164,6 @@ def load_tasks(csv_path: str) -> List[Task]:
             assessment=float(row["assessment"]),
             ammunition=int(row["ammunition"]),
             time=float(row["time"]),
-            value=float(row["value"]),
         )
         tasks.append(task)
     return tasks

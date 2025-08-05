@@ -6,6 +6,14 @@ import math
 
 debug = False
 
+def calculate_back_voyage(uav):
+    """
+    计算无人机返回基地的航程
+    """
+    x1, y1 = uav._init_location
+    x2, y2 = uav.location
+    distance = math.hypot(x2 - x1, y2 - y1)
+    return distance
 
 def calculate_all_voyage_distance(uavs):
     """
@@ -14,7 +22,7 @@ def calculate_all_voyage_distance(uavs):
     total_distance = 0
     for uav in uavs:
         distance = uav._init_voyage - uav.voyage
-        total_distance += distance
+        total_distance += (distance + calculate_back_voyage(uav))
     return total_distance
 
 
@@ -182,9 +190,9 @@ def calculate_reward(
     max_total_voyage,
     max_total_time,
     global_step=100,
-    alpha=0.7,
-    beta=0.2,
-    gamma=0.1,
+    alpha=0.4,
+    beta=0.3,
+    gamma=0.3,
 ):
     """
     综合三项指标计算最终 reward:
@@ -204,6 +212,33 @@ def calculate_reward(
     time_r = calculate_time_r(task, uav, max_total_time)
 
     # 根据训练阶段动态调整权重
-    alpha, beta, gamma = adjust_weights_by_phase(global_step, alpha, beta, gamma)
+    # alpha, beta, gamma = adjust_weights_by_phase(global_step, alpha, beta, gamma)
 
     return alpha * fit_r + beta * voyage_r + gamma * time_r
+
+
+def log_all_voyage_time(uavs, targets):
+    """
+    计算所有无人机的航程和时间，并将每组数据保存到txt文件
+    """
+    # 打开文件准备写入，使用with语句确保文件正确关闭
+    with open("plt/time_voyage.txt", "a", encoding="utf-8") as f:
+        f.write("voyage: ")
+        for i, uav in enumerate(uavs, 1):
+            distance = uav._init_voyage - uav.voyage
+            distance += calculate_back_voyage(uav)  # 加上返回基地的航程
+            # 记录每组数据
+            f.write(f"{distance:.2f}, ")
+        f.write("\ntime: ")  # 每组数据后换行
+        for i, target in enumerate(targets, 1):
+            # 记录每组数据
+            f.write(f"{target.total_time:.2f}, ")
+        f.write("\n")  # 每组数据后换行
+
+
+def log_total_method(total_reward, total_fitness, total_distance, total_time, total_success):
+    """
+    记录每集数据到文件
+    """
+    with open("plt/total_method.txt", "a", encoding="utf-8") as f:
+        f.write(f"{total_reward:.2f}, {total_fitness:.2f}, {total_distance:.2f}, {total_time:.2f}, {total_success:.2f}\n")

@@ -317,7 +317,7 @@ class HS_MOPSO:
                     particle = p
             total_reward = sum(particle.reward) / len(particle.reward)
             total_fitness = sum(particle.fitness_r) / len(particle.fitness_r)
-            total_distance = sum(particle.range)
+            total_distance = calculate_all_voyage_distance(self.uavs)
             total_time = calculate_all_voyage_time(self.targets)
             total_success = 0
             for pr in p.reward:
@@ -329,3 +329,8 @@ class HS_MOPSO:
 | Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
 | Total Success : {total_success:.2f}"
             )
+
+        log_all_voyage_time(self.uavs, self.targets)
+        log_total_method(
+            total_reward, total_fitness, total_distance, total_time, total_success
+        )

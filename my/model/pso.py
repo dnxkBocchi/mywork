@@ -84,6 +84,8 @@ class PSO:
         self.c1 = c1
         self.c2 = c2
 
+        self.count = 0
+
         # 获取任务和无人机数量
         self.num_tasks = sum(len(target.tasks) for target in env.targets)
         self.num_uavs = len(env.uavs)
@@ -92,7 +94,7 @@ class PSO:
             Particle(self.num_tasks, self.num_uavs) for _ in range(num_particles)
         ]
         # 全局最优位置和适应度
-        self.gbest = None
+        self.gbest = self.particles[0]
         self.gbest_position = None
         self.gbest_fitness = float("-inf")
         # 计算理论最大航程用于归一化
@@ -158,6 +160,15 @@ class PSO:
 | Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
 | Total Success : {total_success:.2f}"
             )
+            self.count += 1
+            if self.count == self.max_iter:
+                log_total_method(
+                    total_reward,
+                    total_fitness,
+                    total_distance,
+                    total_time,
+                    total_success,
+                )
         return total_reward
 
     def optimize(self):
@@ -181,4 +192,5 @@ class PSO:
                     self.gbest_position = particle.position.copy()
             self._evaluate_particle(self.gbest, True)  # 打印全局最优信息
         # 返回最优解
+        log_all_voyage_time(self.env.uavs, self.env.targets)
         return self.gbest_position, self.gbest_fitness
