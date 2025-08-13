@@ -1,7 +1,9 @@
 import matplotlib.pyplot as plt
 import re
+import os
+import sys
 
-def plot_from_file(file_path):
+def plot_from_file(file_path, save_dir):
     """
     从本地文件读取航程和时间数据，绘制散点图
     
@@ -9,8 +11,11 @@ def plot_from_file(file_path):
         file_path: 数据文件路径（如 'time_voyage.txt'）
     """
     # 方法名称（与数据顺序对应）
-    methods = ['random', 'rr', 'ga', 'pso', 'mopso', 'dqn', 'my_dqn']
-    
+    methods = ['RANDOM', 'RR', 'GA', 'PSO', 'MOPSO', 'GMP-DRL']
+    # 设置中文字体支持，选用更美观的字体
+    plt.rcParams["font.family"] = ["Times New Roman", "serif"]
+    plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
+
     # 存储读取的数据
     voyage_data = []
     time_data = []
@@ -38,11 +43,11 @@ def plot_from_file(file_path):
         time_data.append(values)
     
     # 设置样式（颜色和标记）
-    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#F7DC6F', '#BB8FCE']
+    colors =  ['#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#FFE8A3', '#FF6B6B']
     markers = ['o', 's', '^', 'D', 'v', '<', '>']
     
     # 创建画布
-    plt.figure(figsize=(12, 7))
+    plt.figure(figsize=(6, 6))
     
     # 绘制散点图
     for i in range(len(methods)):
@@ -53,17 +58,17 @@ def plot_from_file(file_path):
             label=methods[i],
             marker=markers[i],
             alpha=0.7,
-            s=60,
+            s=60 if methods[i] != 'GMP-DRL' else 100,
             edgecolors='black',
-            linewidth=0.5
+            linewidth=0.5 if methods[i] != 'GMP-DRL' else 2
         )
     
     # 图表设置
-    plt.xlabel('时间 (time)', fontsize=12)
-    plt.ylabel('航程 (voyage)', fontsize=12)
-    plt.title('不同方法的航程与时间关系', fontsize=14, pad=20)
+    plt.xlabel('Tasks finish time', fontsize=12)
+    plt.ylabel('UAVs voyage', fontsize=12)
+    plt.title('Different methods of voyage and time relationship', fontsize=14, pad=20)
     plt.grid(True, linestyle='--', alpha=0.6)
-    plt.legend(title='方法', fontsize=10, loc='best')
+    plt.legend(fontsize=10, loc='best')
     
     # 调整坐标轴范围（根据数据分布自动适配）
     all_voyage = [v for sublist in voyage_data for v in sublist]
@@ -72,8 +77,11 @@ def plot_from_file(file_path):
     plt.ylim(min(all_voyage) - 10, max(all_voyage) + 10)
     
     plt.tight_layout()
+    plt.savefig(save_dir, dpi=300, bbox_inches='tight')  # 保存图片
     plt.show()
 
 # 使用示例（请将路径替换为您的实际文件路径）
 if __name__ == "__main__":
-    plot_from_file('my/plt/time_voyage.txt')  # 假设文件与脚本在同一目录
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    save_dir = os.path.join(current_script_dir, "..", "pic", "scatter_plot.png")
+    plot_from_file('my/plt/time_voyage.txt', save_dir)  # 假设文件与脚本在同一目录

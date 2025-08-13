@@ -64,8 +64,7 @@ def calculate_max_possible_voyage_time(uavs, targets):
     # 收集所有任务点的位置
     all_task_locations = []
     for target in targets:
-        for task in target.tasks:
-            all_task_locations.append(task.location)
+        all_task_locations.append(target.location)
     # 对每个无人机，计算其可能的最大航程
     for uav in uavs:
         current_pos = uav.location
@@ -157,32 +156,6 @@ def check_constraints(uav, task):
         return False
     return True
 
-
-def adjust_weights_by_phase(
-    global_step,
-    base_alpha,
-    base_beta,
-    base_gamma,
-    exploration_phase=100,
-    optimization_phase=200,
-):
-    """
-    根据训练阶段动态调整多目标权重：
-    - 探索期：侧重任务适配度与约束满足
-    - 优化期：平衡适配度与航程效率
-    - 收敛期：侧重整体时间效率
-    """
-    if global_step < exploration_phase:
-        # 探索期：优先学习可行解，适配度权重高
-        return base_alpha, base_beta, base_gamma
-    elif global_step < optimization_phase:
-        # 优化期：平衡多目标
-        return base_alpha * 0.75, base_beta * 2, base_gamma
-    else:
-        # 收敛期：侧重时间效率（适合紧急任务场景）
-        return base_alpha * 0.5, base_beta, base_gamma * 4.5
-
-
 def calculate_reward(
     uav,
     task,
@@ -190,9 +163,9 @@ def calculate_reward(
     max_total_voyage,
     max_total_time,
     global_step=100,
-    alpha=0.4,
-    beta=0.3,
-    gamma=0.3,
+    alpha=0.2,
+    beta=0.4,
+    gamma=0.4,
 ):
     """
     综合三项指标计算最终 reward:
@@ -210,12 +183,14 @@ def calculate_reward(
     fit_r = calculate_fitness_r(task, uav)
     voyage_r = calculate_voyage_r(task, uav, max_total_voyage)
     time_r = calculate_time_r(task, uav, max_total_time)
-
-    # 根据训练阶段动态调整权重
-    # alpha, beta, gamma = adjust_weights_by_phase(global_step, alpha, beta, gamma)
+    if debug:
+        print(
+            f"fit_r: {fit_r:.2f}, voyage_r: {voyage_r:.2f}, time_r: {time_r:.2f}, "
+            f"uav: {uav.id}, task: {task.id}"
+        )
 
     return alpha * fit_r + beta * voyage_r + gamma * time_r
-
+    
 
 def log_all_voyage_time(uavs, targets):
     """
@@ -233,7 +208,10 @@ def log_all_voyage_time(uavs, targets):
         for i, target in enumerate(targets, 1):
             # 记录每组数据
             f.write(f"{target.total_time:.2f}, ")
-        f.write("\n")  # 每组数据后换行
+        f.write("\ntasks: ")  # 每组数据后换行
+        for i, uav in enumerate(uavs, 1):
+            f.write(f"{uav.task_nums}, ")
+        f.write("\n")
 
 
 def log_total_method(total_reward, total_fitness, total_distance, total_time, total_success):
@@ -242,3 +220,25 @@ def log_total_method(total_reward, total_fitness, total_distance, total_time, to
     """
     with open("plt/total_method.txt", "a", encoding="utf-8") as f:
         f.write(f"{total_reward:.2f}, {total_fitness:.2f}, {total_distance:.2f}, {total_time:.2f}, {total_success:.2f}\n")
+
+def log_n():
+    with open("plt/time_voyage.txt", "a", encoding="utf-8") as f:
+        f.write(f"\n")
+    with open("plt/total_method.txt", "a", encoding="utf-8") as f:
+        f.write(f"\n")
+    with open("plt/spend_time.txt", "a", encoding="utf-8") as f:
+        f.write(f"\n")
+
+def log_time(elapsed_time):
+    """
+    将算法耗时记录到txt文件
+    """
+    with open("plt/spend_time.txt", "a", encoding='utf-8') as f:
+        f.write(f"{elapsed_time:.6f}\n")
+
+def log_allocation(uav, task):
+    """
+    记录 UAV 和任务的分配情况
+    """
+    with open("plt/allocation.txt", "a", encoding="utf-8") as f:
+        f.write(f"UAV {uav.id} allocated to Task {task.id}\n")

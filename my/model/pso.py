@@ -67,7 +67,7 @@ class Particle:
 
 
 class PSO:
-    def __init__(self, env, num_particles=30, max_iter=100, w=0.7, c1=1.5, c2=1.5):
+    def __init__(self, env, num_particles=50, max_iter=50, w=0.7, c1=1.5, c2=1.5):
         """
         初始化粒子群优化算法
         :param env: 无人机任务分配环境

@@ -1,93 +1,93 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
+import os
+import sys
 from matplotlib.ticker import MaxNLocator
 
-# 设置中文显示
-plt.rcParams["font.family"] = ["SimHei", "WenQuanYi Micro Hei", "Heiti TC"]
-plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
+plt.rcParams["font.family"] = ["Times New Roman", "serif"]
+plt.rcParams["axes.unicode_minus"] = False
 
-# 实验数据整理
-algorithms = ["RANDOM", "RR", "GA", "PSO", "MOPSO", "DQN", "GMP-DQN"]
-metrics = ["Total Fitness", "Total Distance", "Total Time", "Total Success"]
+# 从文件读取数据
+def read_data_from_file(file_path):
+    # 读取文件内容并按行处理
+    with open(file_path, "r") as f:
+        data_lines = [line.strip() for line in f.readlines() if line.strip()]
 
-# 小型场景数据
-small_data = {
-    "Total Distance": [673.79, 726.45, 748.42, 726.04, 719.27, 681.30, 663.87],
-    "Total Time": [524.81, 518.38, 518.38, 412.18, 391.46, 382.53, 395.32],
-    "Total Fitness": [0.24, 0.94, 0.94, 0.69, 0.67, 0.82, 0.81],
-    "Total Success": [0.20, 0.73, 0.80, 0.73, 0.73, 0.87, 0.87]
-}
-
-# 中型场景数据
-middle_data = {
-    "Total Distance": [1399.88, 1389.09, 1382.14, 1326.96, 1361.79, 1333.34, 1218.58],
-    "Total Time": [688.00, 813.78, 753.85, 775.86, 771.74, 755.62, 724.89],
-    "Total Fitness": [0.22, 0.95, 0.95, 0.69, 0.87, 0.95, 0.95],
-    "Total Success": [0.07, 0.73, 0.87, 0.70, 0.83, 1.00, 0.97]
-}
-
-# 大型场景数据
-large_data = {
-    "Total Distance": [2951.82, 2827.78, 2861.04, 2772.75, 2814.38, 2752.66, 2429.19],
-    "Total Time": [1754.32, 1656.29, 1616.42, 1615.50, 1670.03, 1576.28, 1461.04],
-    "Total Fitness": [0.21, 0.94, 0.94, 0.57, 0.81, 0.90, 0.92],
-    "Total Success": [0.08, 0.75, 0.78, 0.53, 0.85, 0.85, 0.90]
-}
-
-# 绘制柱状图
-def plot_metrics(data, title, figsize=(10, 8)):
-    # 设置中文字体支持，选用更美观的字体
-    plt.rcParams["font.family"] = ["Times New Roman", "serif"]
-    plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
-    
-    fig, axes = plt.subplots(2, 2, figsize=figsize)
-    axes = axes.flatten()
-    
-    # 调整后的淡色系颜色（降低饱和度）
-    light_colors = [
-        '#FFA0A0',  # 淡红
-        '#7EE8E0',  # 淡青
-        '#79C7E3',  # 淡蓝
-        '#FFC09F',  # 淡橙
-        '#C5E8D7',  # 淡绿
-        '#FFE8A3',  # 淡黄
-        '#BDA0CB'   # 淡紫
+    algorithms = ['RANDOM', 'RR', 'GA', 'PSO', 'MOPSO', 'GMP-DRL']
+    metrics = [
+        "Total Reward","Total Fitness", "Total Distance", "Total Time", "Total Success",
     ]
+
+    # 分割数据块（每个场景有6行数据，与算法数量对应）
+    scenario_size = len(algorithms)  # 每个场景的数据行数等于算法数量
+    scenarios_data = []
+
+    # 按场景大小分割数据
+    for i in range(0, len(data_lines), scenario_size):
+        scenario_lines = data_lines[i : i + scenario_size]
+        scenario_data = {metric: [] for metric in metrics}
+
+        for line in scenario_lines:
+            values = [float(val.strip()) for val in line.split(",") if val.strip()]
+            for idx, metric in enumerate(metrics):
+                scenario_data[metric].append(values[idx])
+
+        scenarios_data.append(scenario_data)
+
+    return algorithms, metrics, scenarios_data
+
+# 绘制两个指标的分组柱状图
+def plot_two_metrics(data, title, algorithms, metric_pair, location, save_path, figsize=(6, 4)):
+    x = np.arange(len(metric_pair))  # 两个指标的位置
+    width = 0.15  # 每个柱子的宽度（窄一点）
     
-    for i, metric in enumerate(metrics):
-        ax = axes[i]
-        x = np.arange(len(algorithms))
-        # 设置width=1实现柱间距为0，通过align='edge'确保无间隙
-        bars = ax.bar(x, data[metric], width=1, align='edge', 
-                      color=light_colors[:len(algorithms)])
-        
-        # 设置标题字体（加粗+适中大小）
-        ax.set_title(metric, fontsize=13, fontweight='bold', pad=10)
-        # 设置x轴刻度和标签（调整字体大小和旋转避免重叠）
-        ax.set_xticks(x + 0.5)  # 居中显示标签
-        ax.set_xticklabels(algorithms, fontsize=11, rotation=30, ha='right')
-        # 设置y轴刻度格式
-        ax.yaxis.set_major_locator(MaxNLocator(integer=False))
-        # 优化刻度标签字体
-        ax.tick_params(axis='y', labelsize=10)
-        
-        # 添加数据标签（调整位置和字体）
-        for bar in bars:
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
-                    f'{height:.2f}', ha='center', va='bottom', 
-                    fontsize=10, fontweight='medium')
+    colors = [
+        "#26827A", "#79C7E3", "#FFC09F",
+        "#C5E8D7", "#FFE8A3", "#FFA0A0"
+    ]
+
+    fig, ax = plt.subplots(figsize=figsize)
     
-    # 设置总标题（加大字号+加粗）
-    plt.suptitle(title, fontsize=16, fontweight='bold', y=1.02)
+    for i, alg in enumerate(algorithms):
+        values = [data[metric_pair[0]][i], data[metric_pair[1]][i]]
+        ax.bar(x + (i - len(algorithms)/2) * width + width/2,
+               values, width, label=alg, color=colors[i])
+        
+        # 添加数值标签
+        for j, val in enumerate(values):
+            ax.text(x[j] + (i - len(algorithms)/2) * width + width/2,
+                    val + 0.01, f"{val:.2f}",
+                    ha='center', va='bottom', fontsize=9)
+
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xticks(x)
+    ax.set_xticklabels(metric_pair, fontsize=12)
+    ax.yaxis.set_major_locator(MaxNLocator(integer=False))
+    ax.tick_params(axis="y", labelsize=10)
+    ax.legend(fontsize=6, loc=location)
     plt.tight_layout()
+
+    fig.savefig(save_path, dpi=300, bbox_inches='tight')
     return fig
 
-# 生成三个场景的图表
-fig_small = plot_metrics(small_data, "小型场景（5×5）各算法性能对比")
-# fig_middle = plot_metrics(middle_data, "中型场景（10×10）各算法性能对比")
-# fig_large = plot_metrics(large_data, "大型场景（20×20）各算法性能对比")
+# ===== 示例调用 =====
+if __name__ == "__main__":
+    # 假设你已有 read_data_from_file 函数和数据
+    current_script_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(current_script_dir, "..", "plt", "total_method.txt")
+    algorithms, metrics, scenarios = read_data_from_file(file_path)
+    save_dir = os.path.join(current_script_dir, "..", "pic")
 
-# 显示图表
-plt.show()
+    scale = 5
+    for i in range(len(scenarios)):
+        # 图1: Total Fitness + Total Success
+        fig1 = plot_two_metrics(scenarios[i], f"{scale}*{scale}: Fitness and Success",
+                                algorithms, ["Total Fitness", "Total Success"], location='upper left',
+                                save_path=os.path.join(save_dir, f"fitness_success_{scale}.png"))
+        # 图2: Total Distance + Total Time
+        fig2 = plot_two_metrics(scenarios[i], f"{scale}*{scale}: Distance and Time",
+                            algorithms, ["Total Distance", "Total Time"], location='upper right',
+                            save_path=os.path.join(save_dir, f"distance_time_{scale}.png"))
+        scale *= 2
+
+    plt.show()

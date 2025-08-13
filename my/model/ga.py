@@ -2,7 +2,6 @@ import numpy as np
 import random
 from calculate import *
 
-
 class GeneticAlgorithmScheduler:
     def __init__(
         self,
@@ -10,7 +9,7 @@ class GeneticAlgorithmScheduler:
         pop_size=50,
         crossover_rate=0.8,
         mutation_rate=0.1,
-        max_generations=100,
+        max_generations=50,
     ):
         """
         初始化遗传算法调度器
@@ -22,6 +21,7 @@ class GeneticAlgorithmScheduler:
         :param mutation_rate: 变异概率
         :param max_generations: 最大迭代次数
         """
+        self.seed = 34
         self.env = env
         self.uavs = env.uavs
         self.targets = env.targets
@@ -40,9 +40,17 @@ class GeneticAlgorithmScheduler:
         self.mutation_rate = mutation_rate
         self.max_generations = max_generations
         self.count = 0
+        self._set_all_seeds()
 
         # 初始化种群
         self.population = self._initialize_population()
+    
+    def _set_all_seeds(self):
+        """固定所有可能的随机源种子"""
+        # 1. Python标准库random
+        random.seed(self.seed)
+        # 2. numpy随机数
+        np.random.seed(self.seed)
 
     def _initialize_population(self) -> list[np.ndarray]:
         """初始化种群：每个个体是长度为n_tasks的数组，元素为分配的无人机索引"""

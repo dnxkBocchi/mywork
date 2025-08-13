@@ -27,6 +27,7 @@ class Particle:
         self.max_total_voyage, self.max_total_time = calculate_max_possible_voyage_time(
             self.uavs, self.targets
         )
+        self.allocation = []
 
     def initialize(self, targets: List[Target]):
         """基于约束的动态优选初始化"""
@@ -72,6 +73,7 @@ class Particle:
         self.reward = []
         self.resources = []
         self.fitness_r = []
+        self.allocation = []
 
     def task_allocated(self, uav, task, uav_type):
         """基于约束的任务分配"""
@@ -92,6 +94,7 @@ class Particle:
                 self.max_total_time,
             )
         )
+        self.allocation.append((uav.id, task.id))
         # 更新无人机状态
         self.env.update_uav_status(uav, task)
 
@@ -110,6 +113,7 @@ class Particle:
         new_particle.fitness_r = self.fitness_r.copy()
         new_particle.reward = self.reward.copy()
         new_particle.fitness = self.fitness
+        new_particle.allocation = self.allocation.copy()
         return new_particle
 
     def print(self):
@@ -127,8 +131,8 @@ class HS_MOPSO:
     def __init__(
         self,
         env,
-        max_iter: int = 80,
-        pop_size: int = 120,
+        max_iter: int = 50,
+        pop_size: int = 50,
         c: int = 10,  # 初始化优选次数
         C1: float = 0.45,
         C2: float = 0.45,
@@ -232,7 +236,7 @@ class HS_MOPSO:
         return new_p
 
     # 基于任务的小模块粒子更新及修正策略
-    def _constraint_correction(self, p: Particle) -> Particle:
+    def _constraint_correction(self, p: Particle, flag=False) -> Particle:
         """基于约束的粒子修正（时序约束、资源约束）"""
         # 1. 修正任务时序（侦察→打击→评估）
         target_tasks = {}
@@ -315,15 +319,17 @@ class HS_MOPSO:
             for p in self.pareto_set:
                 if particle is None or p.fitness > particle.fitness:
                     particle = p
+            if self.iter_count == self.max_iter - 1 and particle:
+                print(particle.allocation)
             total_reward = sum(particle.reward) / len(particle.reward)
             total_fitness = sum(particle.fitness_r) / len(particle.fitness_r)
             total_distance = calculate_all_voyage_distance(self.uavs)
             total_time = calculate_all_voyage_time(self.targets)
             total_success = 0
-            for pr in p.reward:
+            for pr in particle.reward:
                 if pr > 0:
                     total_success += 1
-            total_success /= len(p.reward)
+            total_success /= len(particle.reward)
             print(
                 f"Iter {self.iter_count+1}, Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
 | Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \

@@ -1,5 +1,4 @@
 import pandas as pd
-import random
 from typing import List, Tuple
 
 
@@ -27,7 +26,7 @@ class Uav:
         strike: float,
         reconnaissance: float,
         assessment: float,
-        ammunition: int,
+        ammunition: float,
         time: float,
         voyage: float,
         speed: float,
@@ -38,12 +37,13 @@ class Uav:
         self.strike = round(strike, 2)
         self.reconnaissance = round(reconnaissance, 2)
         self.assessment = round(assessment, 2)
-        self.ammunition = ammunition
+        self.ammunition = round(ammunition, 2)
         self.time = round(time, 2)
         self.voyage = round(voyage, 2)
         self.speed = round(speed, 2)
         self.end_time = 0.0  # 任务结束时间
         self.idx = None  # 无人机索引，初始化为None
+        self.task_nums = 0  # 无人机任务数量，初始化为0
 
         # 保存一份初始状态
         self._init_location = location
@@ -58,6 +58,7 @@ class Uav:
         self.time = self._init_time
         self.voyage = self._init_voyage
         self.end_time = 0.0
+        self.task_nums = 0
 
 
 class Task:
@@ -82,7 +83,7 @@ class Task:
         strike: float,
         reconnaissance: float,
         assessment: float,
-        ammunition: int,
+        ammunition: float,
         time: float,
     ):
         self.id = id
@@ -91,7 +92,7 @@ class Task:
         self.strike = round(strike, 2)
         self.reconnaissance = round(reconnaissance, 2)
         self.assessment = round(assessment, 2)
-        self.ammunition = ammunition
+        self.ammunition = round(ammunition, 2)
         self.time = round(time, 2)
         self.waiting_time = 0.0  # 任务等待时间
         self.end_time = 0.0  # 任务结束时间
@@ -142,7 +143,7 @@ def load_uavs(csv_path: str) -> List[Uav]:
             strike=float(row["strike"]),
             reconnaissance=float(row["reconnaissance"]),
             assessment=float(row["assessment"]),
-            ammunition=int(row["ammunition"]),
+            ammunition=float(row["ammunition"]),
             time=float(row["time"]),
             voyage=float(row["voyage"]),
             speed=float(row["speed"]),
@@ -162,7 +163,7 @@ def load_tasks(csv_path: str) -> List[Task]:
             strike=float(row["strike"]),
             reconnaissance=float(row["reconnaissance"]),
             assessment=float(row["assessment"]),
-            ammunition=int(row["ammunition"]),
+            ammunition=float(row["ammunition"]),
             time=float(row["time"]),
         )
         tasks.append(task)

@@ -36,8 +36,9 @@ def select_uav_by_voyage(task, uavs) -> int:
     valid_uavs = []
     for idx, uav in enumerate(uavs):
         if check_constraints(uav, task):
-            distance = calculate_voyage_distance(uav, task)
-            valid_uavs.append((idx, uav, distance))
+            voyage = uav._init_voyage - uav.voyage
+            voyage += calculate_voyage_distance(uav, task)
+            valid_uavs.append((idx, uav, voyage))
     if not valid_uavs:
         # return random.choice(uavs) 
         return random.choice(range(len(uavs)))
@@ -54,6 +55,7 @@ def select_uav_by_time(task, uavs) -> int:
     for idx, uav in enumerate(uavs):
         if check_constraints(uav, task):
             time = calculate_voyage_time(uav, task)  # 计算飞行时间
+            time += uav.end_time
             valid_uavs.append((idx, uav, time))
     if not valid_uavs:
         # return random.choice(uavs) 
