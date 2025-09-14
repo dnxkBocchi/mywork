@@ -150,11 +150,11 @@ def train_dqn(
         while not done:
             if random.random() < eps and ep < 1000:
                 # my greedy dqn
-                actions = []
+                # actions = []
                 # actions.append(select_uav_by_matching(env.task, env.uavs))
-                actions.append(select_uav_by_voyage(env.task, env.uavs))
-                actions.append(select_uav_by_time(env.task, env.uavs))
-                action = random.choice(actions)
+                # actions.append(select_uav_by_voyage(env.task, env.uavs))
+                # actions.append(select_uav_by_time(env.task, env.uavs))
+                # action = random.choice(actions)
                 action = random.choice(range(len(uavs)))
             else:
                 with torch.no_grad():
@@ -211,8 +211,6 @@ def train_dqn(
         if ep % 10 == 0:
             target_net.load_state_dict(policy_net.state_dict())
             mean = np.mean(rewards_per_episode)
-            # if np.mean(rewards_per_episode) < 0.4:
-            #     mean += 0.3
             rewards_per10_episode.append(mean)
             rewards_per_episode = []
         total_reward /= num_tasks  # 平均每个任务的奖励
@@ -229,7 +227,7 @@ def train_dqn(
         ):
             best_total_reward = total_distance + total_time
             # 新增：保存最优模型
-            model_name = f"dqn_model_{scale}x.pth"
+            model_name = f"dqn_{scale}x.pth"
             torch.save(policy_net.state_dict(), os.path.join(save_dir, model_name))
 
             voyage = []
@@ -263,15 +261,16 @@ def train_dqn(
             plt.grid(True)
             plt.show()
 
-    with open("plt/rewards_per10_episode.txt", "a") as f:
-        for reward in rewards_per10_episode:
-            f.write(str(reward) + " ")
+    # with open("plt/rewards_per10_episode.txt", "a") as f:
+    #     for reward in rewards_per10_episode:
+    #         f.write(str(reward) + " ")
     return policy_net
 
 
 def test_dqn(
     env,
     scale,  # 保存的模型路径
+    model,
     test_episodes=1,  # 测试轮数
 ):
     # 1. 初始化环境和模型
@@ -280,7 +279,7 @@ def test_dqn(
     # 2. 构建与训练时相同结构的DQN网络
     policy_net = DQN(state_dim, action_dim)
     # 3. 加载保存的模型权重
-    model_path = f"./results/dqn_model_{scale}x.pth"
+    model_path = f"./results/{model}_{scale}x.pth"
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"模型文件不存在: {model_path}")
     policy_net.load_state_dict(torch.load(model_path))

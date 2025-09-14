@@ -13,7 +13,7 @@ def read_data_from_file(file_path):
     with open(file_path, "r") as f:
         data_lines = [line.strip() for line in f.readlines() if line.strip()]
 
-    algorithms = ['RANDOM', 'RR', 'GA', 'PSO', 'MOPSO', 'GMP-DRL']
+    algorithms = ['RANDOM', 'RR', 'GA', 'PSO', 'MOPSO', 'DRL', 'GMP-DRL']
     metrics = [
         "Total Reward","Total Fitness", "Total Distance", "Total Time", "Total Success",
     ]
@@ -36,28 +36,34 @@ def read_data_from_file(file_path):
 
     return algorithms, metrics, scenarios_data
 
-# 绘制两个指标的分组柱状图
+# 绘制两个指标的分组柱状图（黑白风格）
 def plot_two_metrics(data, title, algorithms, metric_pair, location, save_path, figsize=(6, 4)):
     x = np.arange(len(metric_pair))  # 两个指标的位置
-    width = 0.15  # 每个柱子的宽度（窄一点）
+    width = 0.13  # 每个柱子的宽度
     
-    colors = [
-        "#26827A", "#79C7E3", "#FFC09F",
-        "#C5E8D7", "#FFE8A3", "#FFA0A0"
-    ]
+    # 黑白风格设置：不同的线条样式和填充模式
+    line_styles = ['-', '--', '-.', ':', '-', '--', '-.']  # 不同线条样式区分不同算法
+    fill_patterns = ['', '/', '\\', 'x', '+', '|', '/']  # 填充图案区分不同算法
+    edge_widths = [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 2.0]  # GMP-DRL线条更粗以突出显示
 
     fig, ax = plt.subplots(figsize=figsize)
     
     for i, alg in enumerate(algorithms):
         values = [data[metric_pair[0]][i], data[metric_pair[1]][i]]
+        # 使用黑白样式：无填充色，仅用边框和图案区分
         ax.bar(x + (i - len(algorithms)/2) * width + width/2,
-               values, width, label=alg, color=colors[i])
+               values, width, label=alg, 
+               color='none',  # 无填充色
+               edgecolor='black',  # 黑色边框
+               linestyle=line_styles[i],  # 不同线条样式
+               linewidth=edge_widths[i],  # 线条宽度
+               hatch=fill_patterns[i])  # 填充图案
         
         # 添加数值标签
         for j, val in enumerate(values):
             ax.text(x[j] + (i - len(algorithms)/2) * width + width/2,
                     val + 0.01, f"{val:.2f}",
-                    ha='center', va='bottom', fontsize=9)
+                    ha='center', va='bottom', fontsize=7)
 
     ax.set_title(title, fontsize=14, fontweight="bold")
     ax.set_xticks(x)
@@ -72,7 +78,6 @@ def plot_two_metrics(data, title, algorithms, metric_pair, location, save_path, 
 
 # ===== 示例调用 =====
 if __name__ == "__main__":
-    # 假设你已有 read_data_from_file 函数和数据
     current_script_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_script_dir, "..", "plt", "total_method.txt")
     algorithms, metrics, scenarios = read_data_from_file(file_path)
@@ -83,11 +88,12 @@ if __name__ == "__main__":
         # 图1: Total Fitness + Total Success
         fig1 = plot_two_metrics(scenarios[i], f"{scale}*{scale}: Fitness and Success",
                                 algorithms, ["Total Fitness", "Total Success"], location='upper left',
-                                save_path=os.path.join(save_dir, f"fitness_success_{scale}.png"))
+                                save_path=os.path.join(save_dir, f"fitness_success_{scale}.svg"))
         # 图2: Total Distance + Total Time
         fig2 = plot_two_metrics(scenarios[i], f"{scale}*{scale}: Distance and Time",
                             algorithms, ["Total Distance", "Total Time"], location='upper right',
-                            save_path=os.path.join(save_dir, f"distance_time_{scale}.png"))
+                            save_path=os.path.join(save_dir, f"distance_time_{scale}.svg"))
         scale *= 2
 
     plt.show()
+    

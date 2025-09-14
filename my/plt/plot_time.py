@@ -15,7 +15,7 @@ def read_time_data(file_path):
         content = f.read()
 
     data_blocks = re.split(r"\n\s*\n", content.strip())
-    algorithms = ["RANDOM", "RR", "GA", "PSO", "MOPSO", "GMP-DRL"]
+    algorithms = ["RANDOM", "RR", "GA", "PSO", "MOPSO", "DRL", "GMP-DRL"]
     scenarios = []
     for block in data_blocks:
         times = [
@@ -30,7 +30,7 @@ def plot_time_comparison_all(algorithms, scenarios, title, figsize=(7, 6)):
     plt.rcParams["font.family"] = ["Times New Roman", "serif"]
     plt.figure(figsize=figsize)
 
-    colors = ["#358DA1", "#FF6B6B", "#4E9A06"]
+    colors = ["#05191D", "#340F0F", "#2B3621"]
     markers = ["o", "s", "^"]
     labels = ["5*5 scale", "10*10 scale", "20*20 scale"]
     offsets = [200, 400, 600]  # 三条线的标签错开高度
@@ -51,12 +51,12 @@ def plot_time_comparison_all(algorithms, scenarios, title, figsize=(7, 6)):
         for j, value in enumerate(times):
             plt.text(
                 j,
-                value + offsets[i] if j == 0 or j == 1 or j == 5 else value,
+                value + offsets[i] if j == 0 or j == 1 or j == 5 or j == 6 else value,
                 f"{value:.2f}",
                 ha="center",
                 va="bottom",
                 fontsize=10,
-                color=colors[i]
+                # color=colors[i]
             )
 
     plt.title(title, fontsize=15, pad=20)
@@ -78,7 +78,7 @@ if __name__ == "__main__":
         algorithms, scenarios, "Spend Time Comparison for All Scales"
     )
     fig.savefig(
-        os.path.join(current_script_dir, "..", "pic", "time_comparison_all.png"),
+        os.path.join(current_script_dir, "..", "pic", "time_comparison_all.svg"),
         dpi=300,
         bbox_inches="tight",
     )

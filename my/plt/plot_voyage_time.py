@@ -5,13 +5,14 @@ import sys
 
 def plot_from_file(file_path, save_dir):
     """
-    从本地文件读取航程和时间数据，绘制散点图
+    从本地文件读取航程和时间数据，绘制散点图（黑白风格）
     
     参数:
         file_path: 数据文件路径（如 'time_voyage.txt'）
+        save_dir: 图像保存路径
     """
     # 方法名称（与数据顺序对应）
-    methods = ['RANDOM', 'RR', 'GA', 'PSO', 'MOPSO', 'GMP-DRL']
+    methods = ['RANDOM', 'RR', 'GA', 'PSO', 'MOPSO', 'DRL', 'GMP-DRL']
     # 设置中文字体支持，选用更美观的字体
     plt.rcParams["font.family"] = ["Times New Roman", "serif"]
     plt.rcParams["axes.unicode_minus"] = False  # 解决负号显示问题
@@ -42,25 +43,24 @@ def plot_from_file(file_path, save_dir):
         values = list(map(float, re.sub(r'[, ]+', ' ', time_str).strip().split()))
         time_data.append(values)
     
-    # 设置样式（颜色和标记）
-    colors =  ['#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8', '#FFE8A3', '#FF6B6B']
-    markers = ['o', 's', '^', 'D', 'v', '<', '>']
-    
+    # 设置样式（使用不同标记形状，不使用颜色）
+    markers = ['o', 's', '^', 'D', 'v', '<', '>']  # 为每个方法分配不同的标记
+
     # 创建画布
     plt.figure(figsize=(6, 6))
     
-    # 绘制散点图
+    # 绘制散点图（使用黑白风格，通过不同标记区分）
     for i in range(len(methods)):
         plt.scatter(
             time_data[i],
             voyage_data[i],
-            c=colors[i],
             label=methods[i],
             marker=markers[i],
             alpha=0.7,
             s=60 if methods[i] != 'GMP-DRL' else 100,
             edgecolors='black',
-            linewidth=0.5 if methods[i] != 'GMP-DRL' else 2
+            linewidth=0.5 if methods[i] != 'GMP-DRL' else 2,
+            facecolor='none'  # 空心点，增强黑白效果
         )
     
     # 图表设置
@@ -83,5 +83,5 @@ def plot_from_file(file_path, save_dir):
 # 使用示例（请将路径替换为您的实际文件路径）
 if __name__ == "__main__":
     current_script_dir = os.path.dirname(os.path.abspath(__file__))
-    save_dir = os.path.join(current_script_dir, "..", "pic", "scatter_plot.png")
+    save_dir = os.path.join(current_script_dir, "..", "pic", "scatter_plot.svg")
     plot_from_file('my/plt/time_voyage.txt', save_dir)  # 假设文件与脚本在同一目录
