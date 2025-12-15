@@ -108,7 +108,7 @@ save_dir = os.path.join(my_dir, "pic")  # 保存目录：my/pic（与之前代�
 if not os.path.exists(save_dir):
     os.makedirs(save_dir)  # 自动创建目录（避免路径不存在报错）
 
-save_path = os.path.join(save_dir, "reward_comparison.svg")
+save_path = os.path.join(save_dir, "reward_comparison_20.svg")
 plt.tight_layout()  # 自动调整布局：避免标签、标题被截断
 plt.savefig(
     save_path,
