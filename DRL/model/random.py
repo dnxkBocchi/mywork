@@ -5,7 +5,7 @@ import random
 # 添加项目根目录到 sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from my.calculate import *
+from DRL.calculate import *
 
 
 def random_allocation(env):
