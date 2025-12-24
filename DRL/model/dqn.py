@@ -116,11 +116,11 @@ def train_dqn(
     target_net.load_state_dict(policy_net.state_dict())
     optimizer = optim.Adam(policy_net.parameters(), lr=lr)
     eps = eps_start
-    alpha = 0.6  
-    beta_start = 0.4  
-    beta_frames = 100000  
+    alpha = 0.6
+    beta_start = 0.4
+    beta_frames = 100000
     buffer = PrioritizedReplayBuffer(10000, alpha=alpha)
-    frame_idx = 1  
+    frame_idx = 1
 
     # 用于存储每集的总 reward
     rewards_per_episode = []
@@ -243,11 +243,11 @@ def train_dqn(
                 total_reward, total_fitness, total_distance, total_time, total_success
             )
 
-        #         print(
-        #             f"Episode {ep} | Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
-        # | Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
-        # | Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
-        #         )
+        print(
+            f"Episode {ep} | Total Reward: {total_reward:.2f} | Total Fitness: {total_fitness:.2f} \
+        | Total Distance: {total_distance:.2f} | Total Time: {total_time:.2f} \
+        | Total Success : {total_success:.2f} | Epsilon: {eps:.3f}"
+        )
 
         # 每 100 轮绘制一次 reward 曲线
         if (ep + 1) % 100 == 0:

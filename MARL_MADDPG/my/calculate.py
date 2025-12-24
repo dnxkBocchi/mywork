@@ -181,7 +181,7 @@ def calculate_reward(
     """
     # 先检查约束，若不满足则给一个大负奖励
     if not check_constraints(uav, task):
-        return 0
+        return -1
 
     fit_r = calculate_fitness_r(task, uav)
     voyage_r = calculate_voyage_r(task, uav, max_total_voyage)

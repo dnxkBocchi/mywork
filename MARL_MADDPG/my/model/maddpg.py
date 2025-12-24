@@ -35,8 +35,7 @@ class MADDPG:
 
         # optimizers
         self.actor_opts = [
-            optim.Adam(actor.parameters(), lr=lr_actor)
-            for actor in self.actors
+            optim.Adam(actor.parameters(), lr=lr_actor) for actor in self.actors
         ]
         self.critic_opt = optim.Adam(self.critic.parameters(), lr=lr_critic)
 
@@ -75,21 +74,14 @@ class MADDPG:
         with torch.no_grad():
             next_actions = []
             for i in range(self.n_agents):
-                next_actions.append(
-                    self.target_actors[i](next_obs[:, i, :])
-                )
+                next_actions.append(self.target_actors[i](next_obs[:, i, :]))
             next_actions = torch.cat(next_actions, dim=-1)
 
-            target_q = reward + self.gamma * (1 - done) * \
-                       self.target_critic(
-                           next_obs.view(next_obs.size(0), -1),
-                           next_actions
-                       )
+            target_q = reward + self.gamma * (1 - done) * self.target_critic(
+                next_obs.view(next_obs.size(0), -1), next_actions
+            )
 
-        current_q = self.critic(
-            obs.view(obs.size(0), -1),
-            act.view(act.size(0), -1)
-        )
+        current_q = self.critic(obs.view(obs.size(0), -1), act.view(act.size(0), -1))
 
         critic_loss = ((current_q - target_q) ** 2).mean()
 
@@ -108,10 +100,7 @@ class MADDPG:
 
             cur_actions = torch.cat(cur_actions, dim=-1)
 
-            actor_loss = -self.critic(
-                obs.view(obs.size(0), -1),
-                cur_actions
-            ).mean()
+            actor_loss = -self.critic(obs.view(obs.size(0), -1), cur_actions).mean()
 
             self.actor_opts[i].zero_grad()
             actor_loss.backward()
@@ -121,7 +110,9 @@ class MADDPG:
 
     def _soft_update(self):
         for i in range(self.n_agents):
-            for p, tp in zip(self.actors[i].parameters(), self.target_actors[i].parameters()):
+            for p, tp in zip(
+                self.actors[i].parameters(), self.target_actors[i].parameters()
+            ):
                 tp.data.copy_(self.tau * p.data + (1 - self.tau) * tp.data)
 
         for p, tp in zip(self.critic.parameters(), self.target_critic.parameters()):

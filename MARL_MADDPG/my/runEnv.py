@@ -10,14 +10,14 @@ allocation = False
 
 # 简化版环境示例
 class UAVEnv:
-    def __init__(self, uavs, targets, tasks, map_size=100.0):
+    def __init__(self, uavs, targets, tasks, max_neighbors, map_size=100.0):
         self.uavs = uavs
         self.targets = targets
         self.tasks = tasks
         self.task = None  # 当前任务
         self.map_size = map_size
-        self.comm_radius = 30.0,   # 通信半径
-        self.max_neighbors = len(uavs) / 3     # 最大邻居数
+        self.comm_radius = 30.0  # 通信半径
+        self.max_neighbors = max_neighbors  # 最大邻居数
         self.done = False
 
         self.max_voyage = 0
@@ -49,7 +49,7 @@ class UAVEnv:
         )
 
         return self._get_state()
-    
+
     def _get_neighbor_uavs(self, uav):
         """
         获取通信半径内的邻居 UAV (按距离排序)
@@ -66,18 +66,18 @@ class UAVEnv:
         # 按距离排序
         neighbors.sort(key=lambda x: x[0])
         # 取最近 max_neighbors 个
-        return [u for _, u in neighbors[:self.max_neighbors]]
-    
+        return [u for _, u in neighbors[: self.max_neighbors]]
+
     def _get_capacity(self, u_t):
         capacity = 0
         resource = 0
-        if (u_t.type == 1):
+        if u_t.type == 1:
             capacity = u_t.strike
             resource = u_t.ammunition
-        elif (u_t.type == 2):
+        elif u_t.type == 2:
             capacity = u_t.reconnaissance
             resource = u_t.time
-        elif (u_t.type == 3):
+        elif u_t.type == 3:
             capacity = u_t.assessment
             resource = u_t.time
         return capacity, resource
@@ -115,7 +115,7 @@ class UAVEnv:
             resource,
             # task.value,
         ]
-    
+
     def get_agent_obs(self, uav):
         obs = []
         # 1. 自身状态
@@ -130,7 +130,7 @@ class UAVEnv:
             obs.extend(self._normalize_uav(n))
         # padding
         missing = self.max_neighbors - len(neighbors)
-        obs.extend([0.0] * missing * len(self._normalize_neighbor(uav, uav)))
+        obs.extend([0.0] * missing * len(self._normalize_uav(uav)))
         return np.array(obs, dtype=np.float32)
 
     def get_obs_all(self):
@@ -182,7 +182,9 @@ class UAVEnv:
         uav.time -= task.time
         if debug:
             print(f"task waiting time: {task.waiting_time}, end time: {task.end_time}")
-            print(f"max_voyage: {self.max_voyage}, max_total_time: {self.max_total_time}, max_total_voyage: {self.max_total_voyage}")
+            print(
+                f"max_voyage: {self.max_voyage}, max_total_time: {self.max_total_time}, max_total_voyage: {self.max_total_voyage}"
+            )
             print(
                 f"UAV {uav.id} updated: location {uav.location}, ammunition {uav.ammunition}, time {uav.time}, voyage {uav.voyage}"
             )
