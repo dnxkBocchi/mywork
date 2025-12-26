@@ -31,6 +31,13 @@ class DynamicUAVEnv:
         self.crash_lambda = 0.005  # 风险系数 lambda，可调
         self.add_threshold = 0.3  # 任务压力阈值 theta_add
         self.prob_add = 0.3  # 生成概率 p_add
+        # === 关键参数 ===
+        self.K_local = 3  # Actor观测的最近任务数 (Top-K)
+        self.M_global = 12  # Critic观测的全局最大任务数 (用于Padding)
+        # === 缓存 ===
+        # 存储每一步每个UAV观测到的候选任务列表，用于将Action Index映射回真实Task
+        # 结构: {uav_idx: [task_obj_1, task_obj_2, ...]}
+        self.candidate_cache = {}
 
         self.max_voyage = 0
         self.max_speed = 0
@@ -133,28 +140,209 @@ class DynamicUAVEnv:
             # task.value,
         ]
 
+    def _get_valid_tasks(self, uav):
+        """
+        为某个 UAV 筛选它现在【能看见】且【能执行】的任务
+        条件：1. 距离 < 通信半径
+             2. 类型匹配 (侦察机看侦察任务)
+             3. 任务未完成
+             4. 任务的前置依赖已完成 (环境侧的规则约束)
+        """
+        valid_tasks = []
+        if not uav.alive:
+            return []
+
+        for task in self.tasks:
+            if task.flag:
+                continue  # 已完成
+            if task.type != uav.type:
+                continue  # 类型不对
+            # 距离筛选
+            dist = np.hypot(
+                uav.location[0] - task.location[0], uav.location[1] - task.location[1]
+            )
+            if dist > self.comm_radius:
+                continue
+            # === 依赖链检查 (关键) ===
+            target = task.target
+            target_tasks = target.tasks  # [侦察, 打击, 评估]
+            # 如果是侦察(0)，无前置，可执行
+            is_ready = False
+            if task.type == 1:  # 侦察
+                is_ready = True
+            elif task.type == 2:  # 打击
+                # 依赖侦察(0)完成
+                if target_tasks[0].flag:
+                    is_ready = True
+            elif task.type == 3:  # 评估
+                # 依赖打击(1)完成
+                if target_tasks[1].flag:
+                    is_ready = True
+            if is_ready:
+                valid_tasks.append(task)
+
+        return valid_tasks
+
     def get_agent_obs(self, uav):
-        obs = []
-        # 1. 自身状态
-        obs.extend(self._normalize_uav(uav))
-        # 2. 当前任务状态
-        target = self.targets[self.current_target_idx]
-        task = target.tasks[self.task_step[target.id]]
-        obs.extend(self._normalize_task(task))
-        # 3. 邻居 UAV 状态
-        neighbors = self._get_neighbor_uavs(uav)
-        for n in neighbors:
-            obs.extend(self._normalize_uav(n))
-        # padding
-        missing = self.max_neighbors - len(neighbors)
-        obs.extend([0.0] * missing * len(self._normalize_uav(uav)))
-        return np.array(obs, dtype=np.float32)
+        """
+        Actor 输入构造:
+        [Self_State, Neighbor_1, ..., Neighbor_M, Task_1, ..., Task_K]
+        """
+        obs_vec = []
+
+        obs_vec.extend(self._normalize_uav(uav))
+        # 记录单个 UAV 特征长度，用于后续 Padding
+        len_uav_feat = len(self._normalize_uav(uav))
+        current_neighbors = self._get_neighbor_uavs(uav)
+        for n_uav in current_neighbors:
+            obs_vec.extend(self._normalize_uav(n_uav))
+        # 填充 (Padding): 如果邻居不够 max_neighbors 个，补 0
+        missing_neighbors = self.max_neighbors - len(current_neighbors)
+        if missing_neighbors > 0:
+            obs_vec.extend([0.0] * len_uav_feat * missing_neighbors)
+
+        candidates = self._get_valid_tasks(uav)
+        top_k_tasks = candidates[: self.K_local]
+
+        # *** 关键: 更新缓存，供 step_parallel 使用 ***
+        self.candidate_cache[uav.idx] = top_k_tasks
+        # 初始化 Mask: 长度 = K_local + 1 (最后一位是 Wait)
+        action_mask = np.full(self.K_local + 1, -1e9, dtype=np.float32)
+        # 填充任务特征 并 激活Mask
+        len_task_feat = 5  # 假设 _normalize_task 返回长度为 5
+        for i in range(self.K_local):
+            if i < len(top_k_tasks):
+                # 有真实任务
+                task = top_k_tasks[i]
+                obs_vec.extend(self._normalize_task(task))
+                action_mask[i] = 1.0  # 激活该位置动作
+            else:
+                # 没任务 (Padding)
+                obs_vec.extend([0.0] * len_task_feat)
+                # Mask 保持 -inf，禁止智能体选这个空的占位符
+        # Part 4: 待机动作 (Wait Action)
+        # 总是允许待机 (Index = K_local)
+        action_mask[self.K_local] = 1.0
+
+        return np.array(obs_vec, dtype=np.float32), action_mask
 
     def get_obs_all(self):
-        obs_all = []
-        for uav in self.uavs:
-            obs_all.append(self.get_agent_obs(uav))
-        return np.array(obs_all)
+        """
+        返回:
+        1. agent_obs_list: [N, Obs_Dim]
+        2. global_state: [State_Dim]
+        3. masks: [N, Action_Dim]
+        """
+        obs_list = []
+        masks_list = []
+        for u in self.uavs:
+            o, m = self.get_agent_obs(u)
+            obs_list.append(o)
+            masks_list.append(m)
+
+        global_s = self.get_global_state()
+        return np.array(obs_list), global_s, np.array(masks_list)
+
+    def step_parallel(self, actions_idx):
+        """
+        actions_idx: list or array of shape (N_UAV,), 内容为 0 ~ K
+        """
+        rewards = np.zeros(len(self.uavs), dtype=np.float32)
+        # 1. 解码动作: 哪些 UAV 想去执行哪个 Task
+        # 暂存申请: task_id -> [uav_obj_list]
+        task_applications = {}
+        uav_action_map = {}  # 记录每个UAV实际选了啥，方便算个体惩罚
+
+        for i, uav in enumerate(self.uavs):
+            if not uav.alive:
+                continue
+
+            act = actions_idx[i]
+            candidates = self.candidate_cache.get(uav.idx, [])
+
+            if act < len(candidates):
+                # 选择了具体的任务
+                selected_task = candidates[act]
+
+                # 双重检查：是否被别人抢了？(在Conflict resolve阶段做)
+                # 此时任务肯定未完成且合规 (因为是从 get_agent_obs 生成的缓存里取的)
+
+                if selected_task not in task_applications:
+                    task_applications[selected_task] = []
+                task_applications[selected_task].append(uav)
+                uav_action_map[uav.idx] = "work"
+            else:
+                # 选择了 No-Op (Index = K) 或 选择了 Padding 的空位
+                uav_action_map[uav.idx] = "wait"
+                # 待机惩罚 (可选，防止它偷懒)
+                rewards[i] -= 0.1
+
+        # 2. 冲突消解 (多个 UAV 选同一个 Task)
+        # 规则：距离最近的获胜
+        cnt_success = 0
+        for task, applicants in task_applications.items():
+            applicants.sort(
+                key=lambda u: np.hypot(
+                    u.location[0] - task.location[0], u.location[1] - task.location[1]
+                )
+            )
+            winner = applicants[0]
+
+            # --- 执行任务逻辑 ---
+            # 只有 Winner 获得奖励和状态更新
+            # 计算消耗
+            dist = np.hypot(
+                winner.location[0] - task.location[0],
+                winner.location[1] - task.location[1],
+            )
+            time_cost = dist / winner.speed + (
+                task.time if hasattr(task, "time") else 10
+            )  # 飞行+执行
+
+            # 更新 Winner 物理状态
+            winner.location = task.location
+            winner.voyage -= dist
+            winner.time -= time_cost
+            winner.task_nums += 1
+
+            # 标记任务完成
+            task.flag = True
+
+            # 给予 Winner 奖励
+            # r_base = 10.0
+            # r_cost = - (dist / self.max_voyage)
+            # rewards[winner.idx] += (r_base + r_cost)
+            rewards[winner.idx] += 5.0  # 简化奖励
+            cnt_success += 1
+
+            # 对 Losers 的处理
+            for loser in applicants[1:]:
+                # 竞争失败惩罚
+                rewards[loser.idx] -= 0.5
+
+        # 3. 全局协作奖励 (Global Reward)
+        # 所有存活 UAV 共享一个基于本步完成任务数的奖励，促进合作
+        global_reward = cnt_success * 2.0
+        for u in self.uavs:
+            if u.alive:
+                rewards[u.idx] += global_reward
+
+        # 4. 动态事件检查
+        for u in self.uavs:
+            self._check_uav_crash(u)
+        self._check_new_task()
+
+        # 5. Done 判定
+        # 所有任务完成 或 所有 UAV 坠毁/无资源
+        all_tasks_done = all(t.flag for t in self.tasks)
+        all_uav_dead = all(not u.alive for u in self.uavs)
+        self.done = all_tasks_done or all_uav_dead
+
+        # 6. 获取新观测
+        next_obs, next_g_state, next_masks = self.get_obs_all()
+
+        info = {"success_count": cnt_success}
+        return (next_obs, next_g_state, next_masks), rewards, self.done, info
 
     def _get_state(self):
         # 将所有 UAV 归一化后状态 + 当前任务归一化后状态
@@ -207,35 +395,6 @@ class DynamicUAVEnv:
             )
         if allocation:
             log_allocation(uav, task)
-
-    def step_serial(self, action):
-        # action: 选择 UAV 索引
-        info = {}
-        target = self.targets[self.current_target_idx]
-        task = self.task
-        choose_uav = self.uavs[action]
-        reward = calculate_reward(
-            choose_uav, task, target, self.max_total_voyage, self.max_total_time
-        )
-        # 更新 UAV 状态
-        self.update_uav_status(choose_uav, task)
-
-        # === 触发动态事件 ===
-        self._check_uav_crash_event(choose_uav)  # 只有动了才可能坠毁
-        self._check_new_task_event()  # 任务完成后检查是否有新任务
-
-        # 推进该 target 内任务
-        self.task_step[target.id] += 1
-        if self.task_step[target.id] >= len(target.tasks):
-            self.current_target_idx += 1
-            if self.current_target_idx >= len(self.targets):
-                self.done = True
-        if self.current_target_idx < len(self.targets):
-            target = self.targets[self.current_target_idx]
-            self.task = target.tasks[self.task_step[target.id]]
-
-        next_state = None if self.done else self._get_state()
-        return next_state, reward, self.done, info
 
     def _check_uav_crash_event(self, uav):
         """

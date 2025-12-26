@@ -132,6 +132,8 @@ def check_constraints(uav, task):
     4. 航程资源
     5. 时序要求
     """
+    if not uav.alive:
+        return False
     # 类型约束
     if task.type == 3 and uav.type != 3:
         return False

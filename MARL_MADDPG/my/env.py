@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from typing import List, Tuple
 
 
@@ -44,6 +45,8 @@ class Uav:
         self.end_time = 0.0  # 任务结束时间
         self.idx = None  # 无人机索引，初始化为None
         self.task_nums = 0  # 无人机任务数量，初始化为0
+        # === 新增：存活状态 ===
+        self.alive = True
 
         # 保存一份初始状态
         self._init_location = location
@@ -59,6 +62,7 @@ class Uav:
         self.voyage = self._init_voyage
         self.end_time = 0.0
         self.task_nums = 0
+        self.alive = True  # 重置时复活
 
 
 class Task:
@@ -125,6 +129,39 @@ class Target:
         self.tasks = tasks
         self.total_time = 0.0
         self.location = (round(location[0], 2), round(location[1], 2))
+
+
+# === 新增：用于动态生成随机任务的辅助函数 ===
+def create_random_target(id_str: str, map_size: float = 100.0) -> "Target":
+    """
+    随机生成一个新的目标，包含3个任务（侦察、打击、评估）
+    """
+    # 随机位置
+    loc_x = np.random.uniform(0, map_size)
+    loc_y = np.random.uniform(0, map_size)
+    location = (loc_x, loc_y)
+
+    tasks = []
+    types = [2, 1, 3]  # 侦察, 打击, 评估
+    for i, t_type in enumerate(types):
+        task = Task(
+            id=f"{id_str}_t{i}",
+            type=t_type,
+            location=location,  # 任务位置同目标位置
+            strike=np.random.uniform(0.6, 1) if t_type == 1 else 0,
+            reconnaissance=np.random.uniform(0.6, 1) if t_type == 2 else 0,
+            assessment=np.random.uniform(0.6, 1) if t_type == 3 else 0,
+            ammunition=np.random.uniform(0, 1) if t_type == 1 else 0,
+            time=np.random.uniform(0, 1) if t_type in [2, 3] else 0,
+        )
+        tasks.append(task)
+
+    target = Target(id=id_str, tasks=tasks, location=location)
+    # 绑定 target
+    for t in tasks:
+        t.target = target
+
+    return target
 
 
 def parse_location(loc_str: str) -> Tuple[float, float]:
@@ -210,4 +247,4 @@ def load_different_scale_csv(
     tasks = load_tasks(task_csv)
     targets = initialize_targets(tasks)
     # 根据 size 参数截取数据
-    return uavs[:size], tasks[:size*3], targets[:size]
+    return uavs[:size], tasks[: size * 3], targets[:size]
