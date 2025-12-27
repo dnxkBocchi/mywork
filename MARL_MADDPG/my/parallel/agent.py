@@ -6,39 +6,42 @@ import torch.nn.functional as F
 class Actor(nn.Module):
     def __init__(self, obs_dim, act_dim):
         super().__init__()
-        # act_dim 现在等于任务总数 (num_tasks)
-        self.net = nn.Sequential(
-            nn.Linear(obs_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, act_dim),
-            # 注意：这里不加 Softmax/Sigmoid，直接输出 logits
-            # Gumbel-Softmax 会在 MADDPG 内部调用
-        )
+        self.fc1 = nn.Linear(obs_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, act_dim)
 
-    def forward(self, obs):
-        return self.net(obs)
+    def forward(self, obs, mask=None):
+        """
+        obs: [B, obs_dim]
+        mask: [B, act_dim]  (0 or -1e9)
+        """
+        x = F.relu(self.fc1(obs))
+        x = F.relu(self.fc2(x))
+        logits = self.fc3(x)
+
+        if mask is not None:
+            logits = logits + mask
+
+        probs = F.softmax(logits, dim=-1)
+        return probs
 
 
 class Critic(nn.Module):
-    """
-    Centralized Critic:
-    输入所有 Agent 的状态和动作
-    act_dim 也是 One-hot 后的维度
-    """
-
-    def __init__(self, total_obs_dim, total_act_dim):
+    def __init__(self, state_dim, act_dim, n_agents):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(total_obs_dim + total_act_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1),
-        )
+        self.input_dim = state_dim + n_agents * act_dim
 
-    def forward(self, obs_all, act_all):
-        # act_all 是所有 agent 动作的拼接 (Batch, n_agents * num_tasks)
-        x = torch.cat([obs_all, act_all], dim=-1)
-        return self.net(x)
+        self.fc1 = nn.Linear(self.input_dim, 512)
+        self.fc2 = nn.Linear(512, 512)
+        self.fc3 = nn.Linear(512, 1)
+
+    def forward(self, state, actions_probs):
+        """
+        state: [B, state_dim]
+        actions_probs: [B, n_agents * act_dim]
+        """
+        x = torch.cat([state, actions_probs], dim=-1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        q = self.fc3(x)
+        return q

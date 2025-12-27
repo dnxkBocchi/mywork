@@ -123,6 +123,31 @@ def calculate_time_r(task, uav, max_total_time):
     return time_r
 
 
+def get_capacity(u_t):
+    capacity = 0
+    resource = 0
+    if u_t.type == 1:
+        capacity = u_t.strike
+        resource = u_t.ammunition
+    elif u_t.type == 2:
+        capacity = u_t.reconnaissance
+        resource = u_t.time
+    elif u_t.type == 3:
+        capacity = u_t.assessment
+        resource = u_t.time
+    return capacity, resource
+
+
+def check_dependency(task):
+    # 时序要求
+    target = task.target
+    for t in target.tasks:
+        if t != task and t.flag == False:
+            return False  # 前面任务未完成，不能执行
+        elif t == task:
+            return True  # 前面任务已完成
+
+
 def check_constraints(uav, task):
     """
     检查各类约束

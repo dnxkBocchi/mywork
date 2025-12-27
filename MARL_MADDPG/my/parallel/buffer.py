@@ -3,42 +3,59 @@ import torch
 
 
 class ReplayBuffer:
-    def __init__(self, capacity, obs_dim, act_dim, n_agents):
-        self.capacity = capacity
+    def __init__(self, max_size, n_agents, obs_dim, state_dim, act_dim, device):
+        self.max_size = max_size
+        self.device = device
         self.ptr = 0
         self.size = 0
-        self.n_agents = n_agents
 
-        # Buffer 初始化
-        self.obs_buf = np.zeros((capacity, n_agents, obs_dim), dtype=np.float32)
-        # 动作 Buffer 现在存的是 One-hot 向量 (n_agents, act_dim)
-        self.act_buf = np.zeros((capacity, n_agents, act_dim), dtype=np.float32)
-        self.rew_buf = np.zeros((capacity, n_agents), dtype=np.float32)
-        self.next_obs_buf = np.zeros((capacity, n_agents, obs_dim), dtype=np.float32)
-        self.done_buf = np.zeros((capacity, n_agents), dtype=np.float32)
+        self.obs = np.zeros((max_size, n_agents, obs_dim), dtype=np.float32)
+        self.next_obs = np.zeros((max_size, n_agents, obs_dim), dtype=np.float32)
 
-    def add(self, obs, act, rew, next_obs, done):
-        """
-        act: 应该是 one-hot 格式 (n_agents, act_dim)
-        """
-        self.obs_buf[self.ptr] = obs
-        self.act_buf[self.ptr] = act
-        self.rew_buf[self.ptr] = rew
-        self.next_obs_buf[self.ptr] = next_obs
-        self.done_buf[self.ptr] = done
+        self.states = np.zeros((max_size, state_dim), dtype=np.float32)
+        self.next_states = np.zeros((max_size, state_dim), dtype=np.float32)
 
-        self.ptr = (self.ptr + 1) % self.capacity
-        self.size = min(self.size + 1, self.capacity)
+        self.actions = np.zeros((max_size, n_agents, act_dim), dtype=np.float32)
+        self.rewards = np.zeros((max_size, n_agents), dtype=np.float32)
+        self.dones = np.zeros((max_size, n_agents), dtype=np.float32)
+
+        self.next_masks = np.zeros((max_size, n_agents, act_dim), dtype=np.float32)
+
+    def add(
+        self,
+        obs,
+        state,
+        actions,
+        rewards,
+        next_obs,
+        next_state,
+        next_masks,
+        dones,
+    ):
+        self.obs[self.ptr] = obs
+        self.states[self.ptr] = state
+        self.actions[self.ptr] = actions
+        self.rewards[self.ptr] = rewards
+        self.next_obs[self.ptr] = next_obs
+        self.next_states[self.ptr] = next_state
+        self.next_masks[self.ptr] = next_masks
+        self.dones[self.ptr] = dones
+
+        self.ptr = (self.ptr + 1) % self.max_size
+        self.size = min(self.size + 1, self.max_size)
 
     def sample(self, batch_size):
-        idxs = np.random.randint(0, self.size, size=batch_size)
+        idx = np.random.choice(self.size, batch_size, replace=False)
 
         return (
-            torch.FloatTensor(self.obs_buf[idxs]),
-            torch.FloatTensor(self.act_buf[idxs]),
-            torch.FloatTensor(self.rew_buf[idxs]),
-            torch.FloatTensor(self.next_obs_buf[idxs]),
-            torch.FloatTensor(self.done_buf[idxs]),
+            torch.tensor(self.obs[idx]).to(self.device),
+            torch.tensor(self.states[idx]).to(self.device),
+            torch.tensor(self.actions[idx]).to(self.device),
+            torch.tensor(self.rewards[idx]).to(self.device),
+            torch.tensor(self.next_obs[idx]).to(self.device),
+            torch.tensor(self.next_states[idx]).to(self.device),
+            torch.tensor(self.next_masks[idx]).to(self.device),
+            torch.tensor(self.dones[idx]).to(self.device),
         )
 
     def __len__(self):

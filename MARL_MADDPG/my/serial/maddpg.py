@@ -1,7 +1,7 @@
 import torch
 import torch.optim as optim
-from model.agent import Actor, Critic
-from model.buffer import ReplayBuffer
+from serial.agent import Actor, Critic
+from serial.buffer import ReplayBuffer
 import numpy as np
 
 

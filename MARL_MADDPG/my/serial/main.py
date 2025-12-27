@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-from model.maddpg import MADDPG
-from runEnv import DynamicUAVEnv
+from serial.maddpg import MADDPG
+from serial.runSerialEnv import DynamicUAVEnv
 from env import load_different_scale_csv
 from calculate import *
 
