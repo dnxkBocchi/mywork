@@ -25,6 +25,13 @@ class Actor(nn.Module):
         probs = F.softmax(logits, dim=-1)
         return probs
 
+    def get_action_entropy(self, obs, mask=None):
+        """计算动作熵，用于监控探索程度"""
+        with torch.no_grad():
+            probs = self.forward(obs, mask)
+            entropy = -(probs * torch.log(probs + 1e-8)).sum(dim=-1).mean()
+            return entropy.item()
+
 
 class Critic(nn.Module):
     def __init__(self, state_dim, act_dim, n_agents):

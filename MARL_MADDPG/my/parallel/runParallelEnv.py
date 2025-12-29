@@ -105,12 +105,14 @@ class DynamicUAVEnv:
         loc_x = task.location[0] / self.map_size
         loc_y = task.location[1] / self.map_size
         capacity, resource = get_capacity(task)
+        alive_status = 1.0 if task.flag else 0.0  # 新增特征
         return [
             type_norm,
             loc_x,
             loc_y,
             capacity,
             resource,
+            # alive_status,
             # task.value,
         ]
 
@@ -135,27 +137,23 @@ class DynamicUAVEnv:
     def _get_valid_tasks(self, uav):
         """
         为某个 UAV 筛选它现在【能看见】且【能执行】的任务
-        条件：1. 距离 < 通信半径
-             2. 类型匹配 (侦察机看侦察任务)
-             3. 任务未完成
-             4. 任务的前置依赖已完成 (环境侧的规则约束)
+        并按执行代价进行稳定排序
         """
         valid_tasks = []
         if not uav.alive:
             return []
         for task in self.tasks:
             if task.flag:
-                continue  # 已完成
+                continue
             if task.type != uav.type:
-                continue  # 类型不对
-            # 距离筛选
+                continue
             dist = calculate_voyage_distance(uav, task)
             if dist > self.comm_radius:
                 continue
-            # === 依赖链检查 ===
-            is_ready = check_dependency(task)
-            if is_ready:
+            if check_dependency(task):
                 valid_tasks.append(task)
+        # 稳定排序
+        valid_tasks.sort(key=lambda t: (calculate_voyage_distance(uav, t)))
         return valid_tasks
 
     def get_agent_obs(self, uav):
@@ -183,9 +181,9 @@ class DynamicUAVEnv:
         top_k_tasks = candidates[: self.K_local]
         # *** 关键: 更新缓存，供 step_parallel 使用 ***
         self.candidate_cache[uav.idx] = top_k_tasks
-        # 初始化 Mask: 长度 = K_local + 1 (最后一位是 Wait)
-        action_mask = np.full(self.K_local + 1, -1e9, dtype=np.float32)
-        # 填充任务特征 并 激活Mask
+        # 初始化 Mask: 长度 = K_local
+        action_mask = np.full(self.K_local, -1e9, dtype=np.float32)
+        # 填充任务特征 并激活Mask
         for i in range(self.K_local):
             if i < len(top_k_tasks):
                 # 有真实任务
@@ -195,16 +193,13 @@ class DynamicUAVEnv:
             else:
                 # 没任务 (Padding)
                 obs_vec.extend([0.0] * self.task_dim)
-                # Mask 保持 -inf，禁止智能体选这个空的占位符
-        # Part 4: 待机动作 总是允许待机 (Index = K_local)
-        action_mask[self.K_local] = 1.0
 
         if debug:
             print(
                 f"{uav.id} tasks: {[t.id for t in top_k_tasks]}, missing: {self.K_local - len(top_k_tasks)}"
             )
             # print(f"tasks obs_vec : {obs_vec[self.uav_dim * (1 + self.N_neighbors):]}")
-            # print(f"action_mask: {action_mask}")
+            print(f"action_mask: {action_mask}")
         return np.array(obs_vec, dtype=np.float32), action_mask
 
     def get_global_state(self):
@@ -246,49 +241,76 @@ class DynamicUAVEnv:
         return np.array(obs_list), global_s, np.array(masks_list)
 
     def step_parallel(self, actions_idx):
-        """
-        简化版并行步进：按索引顺序直接执行，先到先得
-        """
         rewards = np.zeros(len(self.uavs), dtype=np.float32)
         cnt_success = 0
         cnt_fitness = 0
+        # Phase 1: collect intentions
+        intentions = []
         for i, uav in enumerate(self.uavs):
             if not uav.alive:
+                intentions.append((uav, None))
                 continue
             act = actions_idx[i]
             candidates = self.candidate_cache.get(uav.idx, [])
-            # --- 分支 1: 选择了某个任务 ---
-            if act < len(candidates):
-                task = candidates[act]
-                # [关键检查]：任务是否还在？(可能被前面索引的 UAV 刚刚做完了)
-                if not task.flag:
-                    rewards[i] += calculate_reward(
-                        uav,
-                        task,
-                        task.target,
-                        self.max_total_voyage,
-                        self.max_total_time,
-                    )
-                    self.update_uav_status(uav, task)
-                    cnt_fitness += calculate_fitness_r(task, uav)
-                    if rewards[i] > 0:
-                        cnt_success += 1
-                else:
-                    # 冲突惩罚：选了一个已经被队友做完的任务
-                    rewards[i] -= 0.5
-            # --- 分支 2: 选择了待机 (No-Op) ---
-            else:
-                rewards[i] -= 0.05  # 微小的时间流逝惩罚
+            task = candidates[act] if act < len(candidates) else None
+            intentions.append((uav, task))
+        # Phase 2: resolve conflicts
+        task_to_uavs = {}
+        for uav, task in intentions:
+            if task is None:
+                continue
+            task_to_uavs.setdefault(task, []).append(uav)
+        for task, uavs in task_to_uavs.items():
+            if task.flag:
+                continue
+            # 计算所有 UAV 对该 task 的 base reward
+            reward_candidates = []
+            for uav in uavs:
+                r = calculate_reward(
+                    uav,
+                    task,
+                    task.target,
+                    self.max_total_voyage,
+                    self.max_total_time,
+                )
+                reward_candidates.append((uav, r))
+            best_r = max(r for _, r in reward_candidates)
+            # 选 winner（近似最优 + 随机打破平局）
+            eps = 1e-3
+            # best_uavs = [uav for uav, r in reward_candidates if abs(r - best_r) < eps]
+            best_uavs = [uav for uav, r in reward_candidates]
+            winner = np.random.choice(best_uavs)
 
-        # --- 动态事件与结束判定 ---
-        for u in self.uavs:
-            self._check_uav_crash_event(u)
+            # -------- Difference Reward --------
+            for uav, r in reward_candidates:
+                if uav == winner:
+                    # winner: 系统获得 best_r
+                    rewards[uav.idx] += best_r
+                    self.update_uav_status(uav, task)
+                    if r > 0:
+                        cnt_success += 1
+                    cnt_fitness += calculate_fitness_r(task, uav)
+                else:
+                    # loser: 没有你系统也能拿到 best_r
+                    # 你的存在反而引入竞争
+                    rewards[uav.idx] -= best_r - r
+
+        # Phase 3: wait penalty
+        for uav, task in intentions:
+            if task is None and uav.alive:
+                rewards[uav.idx] -= 0.05
+
+        # Dynamic events
+        for uav in self.uavs:
+            self._check_uav_crash_event(uav)
         self._check_new_task_event()
         self.done = all(t.flag for t in self.tasks)
 
-        # 获取下一步观测
         next_obs, next_g_state, next_masks = self.get_obs_all()
         info = {"success_count": cnt_success, "fitness_count": cnt_fitness}
+
+        if debug:
+            print(f"Step finished: Rewards: {rewards}, finished tasks: {cnt_success}")
 
         return (next_obs, next_g_state, next_masks), rewards, self.done, info
 

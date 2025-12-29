@@ -30,7 +30,7 @@ def calculate_all_voyage_distance(uavs):
 
 def calculate_voyage_distance(uav, task):
     """
-    计算剩余航程
+    计算航程
     """
     x1, y1 = uav.location
     x2, y2 = task.location
@@ -105,6 +105,21 @@ def calculate_fitness_r(task, uav):
     return factor
 
 
+def get_capacity(u_t):
+    capacity = 0
+    resource = 0
+    if u_t.type == 1:
+        capacity = u_t.strike
+        resource = u_t.ammunition
+    elif u_t.type == 2:
+        capacity = u_t.reconnaissance
+        resource = u_t.time
+    elif u_t.type == 3:
+        capacity = u_t.assessment
+        resource = u_t.time
+    return capacity, resource
+
+
 def calculate_voyage_r(task, uav, max_total_voyage):
     """
     计算任务航程奖励：
@@ -121,21 +136,6 @@ def calculate_time_r(task, uav, max_total_time):
     voyage_time = calculate_voyage_time(uav, task)
     time_r = 1 - (voyage_time / max_total_time)  # 时间越短奖励越高
     return time_r
-
-
-def get_capacity(u_t):
-    capacity = 0
-    resource = 0
-    if u_t.type == 1:
-        capacity = u_t.strike
-        resource = u_t.ammunition
-    elif u_t.type == 2:
-        capacity = u_t.reconnaissance
-        resource = u_t.time
-    elif u_t.type == 3:
-        capacity = u_t.assessment
-        resource = u_t.time
-    return capacity, resource
 
 
 def check_dependency(task):

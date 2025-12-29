@@ -31,8 +31,8 @@ def train_maddpg(scale, episodes=1000):
     obs_dim = uav_dim + N_neighbors * uav_dim + K_local * task_dim
     # Critic 全局状态维度 = All_UAVs + M_global Tasks
     state_dim = env.uav_dim * n_agents + task_dim * M_global
-    # 动作维度 (K个任务 + 1个待机 = 4)
-    act_dim = K_local + 1
+    # 动作维度 (K个任务)
+    act_dim = K_local
 
     print(f"--- Environment Ready ---")
     print(f"Agents: {n_agents}")
@@ -46,7 +46,7 @@ def train_maddpg(scale, episodes=1000):
         state_dim=state_dim,  # Critic 需要全局状态维度
         act_dim=act_dim,
         device=device,
-        batch_size=64,  # 批次大小
+        batch_size=256,  # 批次大小
         lr_actor=1e-4,  # 学习率
         lr_critic=1e-3,
     )
@@ -72,6 +72,7 @@ def train_maddpg(scale, episodes=1000):
             maddpg.memory.add(
                 obs,
                 global_s,
+                masks,
                 actions_probs,  # 存 Soft 动作
                 rewards,
                 next_obs,
@@ -88,7 +89,7 @@ def train_maddpg(scale, episodes=1000):
             success_count += info.get("success_count", 0)
             fitness_count += info.get("fitness_count", 0)
             # 只有当 Buffer 里有足够数据时才训练
-            if len(maddpg.memory) > 200:  # 预热一下
+            if len(maddpg.memory) > 300:  # 预热一下
                 maddpg.update()
             if done:
                 print(f"Episode finished after {step+1} steps")
@@ -102,7 +103,10 @@ def train_maddpg(scale, episodes=1000):
         total_time = calculate_all_voyage_time(env.targets)
 
         reward_history.append(total_reward)
+        maddpg.log_episode_reward(total_reward)
         print(
             f"Ep {ep} | Avg Reward: {total_reward:.1f} | Success: {success_rate:.2f} | Fitness: {fitness_rate:.2f} \
 | distance: {total_distance:.2f}, time: {total_time:.2f}"
         )
+        if (ep + 1) % 50 == 0:
+            maddpg.plot_training_curves()

@@ -19,12 +19,14 @@ class ReplayBuffer:
         self.rewards = np.zeros((max_size, n_agents), dtype=np.float32)
         self.dones = np.zeros((max_size, n_agents), dtype=np.float32)
 
+        self.masks = np.zeros((max_size, n_agents, act_dim), dtype=np.float32)
         self.next_masks = np.zeros((max_size, n_agents, act_dim), dtype=np.float32)
 
     def add(
         self,
         obs,
         state,
+        masks,
         actions,
         rewards,
         next_obs,
@@ -34,6 +36,7 @@ class ReplayBuffer:
     ):
         self.obs[self.ptr] = obs
         self.states[self.ptr] = state
+        self.masks[self.ptr] = masks
         self.actions[self.ptr] = actions
         self.rewards[self.ptr] = rewards
         self.next_obs[self.ptr] = next_obs
@@ -50,6 +53,7 @@ class ReplayBuffer:
         return (
             torch.tensor(self.obs[idx]).to(self.device),
             torch.tensor(self.states[idx]).to(self.device),
+            torch.tensor(self.masks[idx]).to(self.device),
             torch.tensor(self.actions[idx]).to(self.device),
             torch.tensor(self.rewards[idx]).to(self.device),
             torch.tensor(self.next_obs[idx]).to(self.device),
