@@ -1,6 +1,7 @@
 import numpy as np
 import torch
-from parallel.maddpg import MADDPG  # 假设你之后会改这个模型
+from mappo.mappo import MAPPO  # 假设你之后会改这个模型
+from mappo.ppo_buffer import PPOBuffer
 from runParallelEnv import DynamicUAVEnv
 from env import load_different_scale_csv
 from calculate import *
@@ -8,7 +9,7 @@ from calculate import *
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def train_maddpg(scale, episodes=1000):
+def train_mappo(scale, episodes=1000):
     # === 参数配置 ===
     K_local = 4  # 局部观测任务数
     M_global = (scale + 2) * 3  # 全局 Critic 观测任务数 (安全起见稍微调大)
@@ -39,20 +40,9 @@ def train_maddpg(scale, episodes=1000):
     print(f"Dims -> Agent Obs: {obs_dim}, Global State: {state_dim}, Action: {act_dim}")
     print(f"Params -> K_local: {K_local}, M_global: {M_global}")
 
-    # 3. 初始化 MADDPG
-    maddpg = MADDPG(
-        n_agents=n_agents,
-        obs_dim=obs_dim,
-        state_dim=state_dim,  # Critic 需要全局状态维度
-        act_dim=act_dim,
-        device=device,
-        batch_size=256,  # 批次大小
-        lr_actor=1e-4,  # 学习率
-        lr_critic=1e-3,
-    )
-
-    # 记录曲线
-    reward_history = []
+    # 初始化 MAPPO 和 Buffer
+    mappo = MAPPO(n_agents, obs_dim, state_dim, act_dim, device)
+    buffer = PPOBuffer(MAX_STEPS, n_agents, obs_dim, state_dim, act_dim, 0.99, 0.95)
 
     for ep in range(episodes):
         obs, global_s, masks = env.reset()
@@ -61,39 +51,48 @@ def train_maddpg(scale, episodes=1000):
         fitness_count = 0
 
         for step in range(MAX_STEPS):
-            # print(f"step: {step}")
-            # actions_idx: [N] (整数索引, 给环境)
-            # actions_probs: [N, Act_Dim] (概率分布, 给 Buffer)
-            actions_idx, actions_probs = maddpg.select_action(obs, masks)
+            # 1. 获取动作 & 价值
+            # 注意：MAPPO Critic 需要 Global State
+            value = mappo.get_value(global_s.reshape(1, -1))  # [1]
+            actions_idx, action_log_probs = mappo.select_action(obs, masks)
+
+            # 2. 环境步进
             next_data, rewards, done, info = env.step_parallel(actions_idx)
             next_obs, next_global_s, next_masks = next_data
-            # 环境返回的 done 是标量 (True/False)，Buffer 需要 [N] 数组
-            dones_array = np.array([done] * n_agents, dtype=np.float32)
-            maddpg.memory.add(
+
+            # 3. 存入 Buffer
+            buffer.store(
                 obs,
                 global_s,
-                masks,
-                actions_probs,  # 存 Soft 动作
+                actions_idx,
+                action_log_probs,
                 rewards,
-                next_obs,
-                next_global_s,
-                next_masks,  # 存下一时刻的 mask (用于 Target Actor)
-                dones_array,  # 存广播后的 done
+                masks,
+                value,
+                done,
             )
 
-            # 状态流转
             obs = next_obs
             global_s = next_global_s
             masks = next_masks
             episode_reward += np.sum(rewards)
             success_count += info.get("success_count", 0)
             fitness_count += info.get("fitness_count", 0)
-            # 只有当 Buffer 里有足够数据时才训练
-            if len(maddpg.memory) > 300:  # 预热一下
-                maddpg.update()
+
             if done:
                 print(f"Episode finished after {step+1} steps")
                 break
+
+        # 4. Episode 结束，计算 GAE 并更新
+        # 获取最后一步的 value 用于 GAE 计算
+        last_val = mappo.get_value(global_s.reshape(1, -1))
+        data_to_update = buffer.finish_path(last_val)
+
+        # 5. 执行 PPO 更新
+        mappo.update(data_to_update)
+
+        # 6. 清空 Buffer
+        buffer.clear()
 
         tasks_num = len(env.tasks)
         success_rate = success_count / tasks_num
@@ -101,12 +100,7 @@ def train_maddpg(scale, episodes=1000):
         total_reward = episode_reward / tasks_num
         total_distance = calculate_all_voyage_distance(env.uavs)
         total_time = calculate_all_voyage_time(env.targets)
-
-        reward_history.append(total_reward)
-        maddpg.log_episode_reward(total_reward)
         print(
             f"Ep {ep} | Avg Reward: {total_reward:.1f} | Success: {success_rate:.2f} | Fitness: {fitness_rate:.2f} \
 | distance: {total_distance:.2f}, time: {total_time:.2f}"
         )
-        if (ep + 1) % 50 == 0:
-            maddpg.plot_training_curves()

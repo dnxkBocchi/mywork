@@ -1,6 +1,6 @@
 import numpy as np
 import time
-from parallel.runParallelEnv import DynamicUAVEnv
+from MARL_MADDPG.my.runParallelEnv import DynamicUAVEnv
 from env import load_different_scale_csv
 from contract.contract_net import ContractNetSolver
 
