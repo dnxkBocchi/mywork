@@ -36,8 +36,7 @@ class ImprovedCBBASolver:
     改进版 CBBA：
     1. 基于可行域掩码的 bundle 构建
     2. 新任务插入采用“最小延迟优先、最大收益择优”
-    3. 事件触发式稀疏一致性：仅在状态变化时向局部邻域传播 winner/bid
-    4. 冲突邻域局部重选：仅让受影响 UAV 及其通信邻居参与下一轮重选
+    3. 基于 k-means++ 的聚类分层一致性 + 事件触发式部分重选
     """
 
     def __init__(
@@ -46,16 +45,12 @@ class ImprovedCBBASolver:
         max_consensus_rounds: int = 50,
         cluster_count: Optional[int] = None,
         kmeans_iters: int = 8,
-        comm_radius: Optional[float] = None,
-        sparse_neighbor_k: int = 2,
         debug: bool = False,
     ):
         self.max_bundle_size = max_bundle_size
         self.max_consensus_rounds = max_consensus_rounds
         self.cluster_count = cluster_count
         self.kmeans_iters = kmeans_iters
-        self.comm_radius = comm_radius
-        self.sparse_neighbor_k = max(1, sparse_neighbor_k)
         self.debug = debug
 
     def _log(self, *args):
@@ -201,67 +196,6 @@ class ImprovedCBBASolver:
 
         return compact_clusters, compact_membership, leaders
 
-    def _build_sparse_neighbors(self, env) -> Dict[int, Set[int]]:
-        """构造局部通信邻接表。优先用通信半径，否则退化为 k 近邻无向图。"""
-        alive_indices = [uav.idx for uav in env.uavs if uav.alive]
-        neighbors: Dict[int, Set[int]] = {idx: set() for idx in alive_indices}
-        if len(alive_indices) <= 1:
-            return neighbors
-
-        if self.comm_radius is not None and self.comm_radius > 0:
-            for i, idx_i in enumerate(alive_indices):
-                for idx_j in alive_indices[i + 1 :]:
-                    dist = env.euclidean_pos(
-                        env.uavs[idx_i].location, env.uavs[idx_j].location
-                    )
-                    if dist <= self.comm_radius + EPS:
-                        neighbors[idx_i].add(idx_j)
-                        neighbors[idx_j].add(idx_i)
-
-        for idx in alive_indices:
-            if neighbors[idx]:
-                continue
-            dists = []
-            for other in alive_indices:
-                if other == idx:
-                    continue
-                dist = env.euclidean_pos(
-                    env.uavs[idx].location, env.uavs[other].location
-                )
-                dists.append((dist, other))
-            dists.sort()
-            for _, other in dists[: self.sparse_neighbor_k]:
-                neighbors[idx].add(other)
-                neighbors[other].add(idx)
-
-        return neighbors
-
-    def _estimate_sparse_comm_cost(
-        self,
-        broadcasters: Set[int],
-        neighbors: Dict[int, Set[int]],
-    ) -> Dict[str, int]:
-        """估计事件触发式局部传播的通信代价。"""
-        if not broadcasters:
-            return {
-                "broadcasts": 0,
-                "messages": 0,
-                "scope_agents": 0,
-            }
-
-        touched_agents = set(broadcasters)
-        messages = 0
-        for idx in broadcasters:
-            nbrs = neighbors.get(idx, set())
-            messages += len(nbrs)
-            touched_agents.update(nbrs)
-
-        return {
-            "broadcasts": len(broadcasters),
-            "messages": messages,
-            "scope_agents": len(touched_agents),
-        }
-
     def _bundle_construction(
         self,
         env,
@@ -351,64 +285,54 @@ class ImprovedCBBASolver:
 
         return changed
 
-    def _sparse_consensus_update(
+    def _hierarchical_consensus_update(
         self,
         env,
         agent_states: List[AgentCBBAState],
         available_tasks: List[Task],
-        prev_global_y: Dict[str, float],
-        prev_global_z: Dict[str, Optional[int]],
-        active_agents: Set[int],
-        local_changed_agents: Set[int],
-        neighbors: Dict[int, Set[int]],
-    ) -> Tuple[
-        Dict[str, float],
-        Dict[str, Optional[int]],
-        Set[int],
-        Set[str],
-        Dict[str, int],
-    ]:
+        clusters: List[List[int]],
+    ) -> Tuple[Dict[str, float], Dict[str, Optional[int]], Set[int]]:
         """
-        事件触发式稀疏一致性：
-        1. 仅对受影响任务重算全局 winner/bid
-        2. 仅让状态变化的 UAV 向局部邻域广播
+        分两层做一致性：
+        1. 簇内先由成员竞争产生局部赢家
+        2. 各簇局部赢家再参与簇间全局一致性
         """
         task_ids = [task.id for task in available_tasks]
-        global_y = {task_id: prev_global_y.get(task_id, NEG_INF) for task_id in task_ids}
-        global_z = {task_id: prev_global_z.get(task_id) for task_id in task_ids}
+        cluster_claims: List[Tuple[Dict[str, float], Dict[str, Optional[int]]]] = []
 
-        affected_tasks: Set[str] = set()
-        for uav_idx in active_agents:
-            state = agent_states[uav_idx]
-            affected_tasks.update(state.bundle)
-            affected_tasks.update(state.path)
+        for members in clusters:
+            local_y = {task_id: NEG_INF for task_id in task_ids}
+            local_z = {task_id: None for task_id in task_ids}
             for task_id in task_ids:
-                if state.z.get(task_id) == uav_idx and state.y.get(task_id, NEG_INF) > NEG_INF / 10:
-                    affected_tasks.add(task_id)
+                best_bid = NEG_INF
+                best_uav_idx = None
+                for uav_idx in members:
+                    state = agent_states[uav_idx]
+                    if state.z.get(task_id) != uav_idx:
+                        continue
+                    cand_bid = state.y.get(task_id, NEG_INF)
+                    if env.better_winner(cand_bid, uav_idx, best_bid, best_uav_idx):
+                        best_bid = cand_bid
+                        best_uav_idx = uav_idx
+                local_y[task_id] = best_bid
+                local_z[task_id] = best_uav_idx
+            cluster_claims.append((local_y, local_z))
 
-        for task_id, winner_idx in prev_global_z.items():
-            if winner_idx in active_agents:
-                affected_tasks.add(task_id)
-
-        changed_tasks: Set[str] = set()
-        for task_id in affected_tasks:
+        global_y = {task_id: NEG_INF for task_id in task_ids}
+        global_z = {task_id: None for task_id in task_ids}
+        for task_id in task_ids:
             best_bid = NEG_INF
             best_uav_idx = None
-            for state in agent_states:
-                if state.z.get(task_id) != state.uav_idx:
+            for local_y, local_z in cluster_claims:
+                cand_uav_idx = local_z.get(task_id)
+                if cand_uav_idx is None:
                     continue
-                cand_bid = state.y.get(task_id, NEG_INF)
-                if cand_bid <= NEG_INF / 10:
-                    continue
-                if env.better_winner(cand_bid, state.uav_idx, best_bid, best_uav_idx):
+                cand_bid = local_y.get(task_id, NEG_INF)
+                if env.better_winner(cand_bid, cand_uav_idx, best_bid, best_uav_idx):
                     best_bid = cand_bid
-                    best_uav_idx = state.uav_idx
-
+                    best_uav_idx = cand_uav_idx
             global_y[task_id] = best_bid
             global_z[task_id] = best_uav_idx
-
-            if prev_global_z.get(task_id) != best_uav_idx or abs(prev_global_y.get(task_id, NEG_INF) - best_bid) > EPS:
-                changed_tasks.add(task_id)
 
         pruned_agents: Set[int] = set()
         for state in agent_states:
@@ -438,17 +362,7 @@ class ImprovedCBBASolver:
                     state.y[task_id] = global_y[task_id]
                     state.z[task_id] = global_z[task_id]
 
-        broadcasters: Set[int] = set(local_changed_agents) | set(pruned_agents)
-        for task_id in changed_tasks:
-            old_winner = prev_global_z.get(task_id)
-            new_winner = global_z.get(task_id)
-            if old_winner is not None:
-                broadcasters.add(old_winner)
-            if new_winner is not None:
-                broadcasters.add(new_winner)
-
-        comm_stats = self._estimate_sparse_comm_cost(broadcasters, neighbors)
-        return global_y, global_z, pruned_agents, changed_tasks, comm_stats
+        return global_y, global_z, pruned_agents
 
     def _select_active_agents(
         self,
@@ -456,13 +370,11 @@ class ImprovedCBBASolver:
         prev_global_z: Dict[str, Optional[int]],
         global_z: Dict[str, Optional[int]],
         pruned_agents: Set[int],
-        neighbors: Dict[int, Set[int]],
+        membership: Dict[int, int],
+        clusters: List[List[int]],
     ) -> Set[int]:
-        """冲突邻域局部重选：仅激活受影响 UAV 及其通信邻居。"""
+        """事件触发式局部一致性：仅让受影响 UAV 及其簇内邻居参与下一轮重选。"""
         active_agents = set(pruned_agents)
-        for idx in pruned_agents:
-            active_agents.update(neighbors.get(idx, set()))
-
         for task_id in changed_tasks:
             old_winner = prev_global_z.get(task_id)
             new_winner = global_z.get(task_id)
@@ -470,7 +382,9 @@ class ImprovedCBBASolver:
                 if winner is None:
                     continue
                 active_agents.add(winner)
-                active_agents.update(neighbors.get(winner, set()))
+                cid = membership.get(winner)
+                if cid is not None:
+                    active_agents.update(clusters[cid])
         return active_agents
 
     def _rebuild_assignments_from_winners(
@@ -508,33 +422,22 @@ class ImprovedCBBASolver:
                 "winners": {},
                 "winning_bids": {},
                 "clusters": [],
-                "comm_messages": 0,
-                "event_broadcasts": 0,
-                "avg_scope_agents": 0.0,
-                "changed_tasks": 0,
             }
 
-        neighbors = self._build_sparse_neighbors(env)
-        if not neighbors and not [uav for uav in env.uavs if uav.alive]:
+        clusters, membership, leaders = self._kmeans_pp_clusters(env)
+        if not clusters:
             return {
                 "assignments": {},
                 "iterations": 0,
                 "winners": {},
                 "winning_bids": {},
                 "clusters": [],
-                "comm_messages": 0,
-                "event_broadcasts": 0,
-                "avg_scope_agents": 0.0,
-                "changed_tasks": 0,
             }
 
         self._log(
-            "[CBBA] sparse neighbors:",
-            {
-                env.uavs[idx].id: [env.uavs[j].id for j in sorted(nbrs)]
-                for idx, nbrs in neighbors.items()
-            },
+            "[CBBA] clusters:", [[env.uavs[idx].id for idx in c] for c in clusters]
         )
+        self._log("[CBBA] leaders:", [env.uavs[idx].id for idx in leaders])
 
         agent_states = self._init_agent_states(env, available_tasks)
         task_ids = [task.id for task in available_tasks]
@@ -543,15 +446,13 @@ class ImprovedCBBASolver:
 
         active_agents: Set[int] = {uav.idx for uav in env.uavs if uav.alive}
         iterations = 0
-        total_comm_messages = 0
-        total_event_broadcasts = 0
-        total_scope_agents = 0
-        total_changed_tasks = 0
+
+        comm_cost = 0
+        active_agent_trace = []
 
         while iterations < self.max_consensus_rounds:
             iterations += 1
             any_change = False
-            local_changed_agents: Set[int] = set()
 
             for state in agent_states:
                 if state.uav_idx not in active_agents:
@@ -559,35 +460,27 @@ class ImprovedCBBASolver:
                 changed = self._bundle_construction(
                     env, state, global_y, global_z, available_tasks
                 )
-                if changed:
-                    local_changed_agents.add(state.uav_idx)
                 any_change = any_change or changed
 
             prev_global_y = dict(global_y)
             prev_global_z = dict(global_z)
 
-            (
-                global_y,
-                global_z,
-                pruned_agents,
-                changed_tasks,
-                comm_stats,
-            ) = self._sparse_consensus_update(
+            global_y, global_z, pruned_agents = self._hierarchical_consensus_update(
                 env=env,
                 agent_states=agent_states,
                 available_tasks=available_tasks,
-                prev_global_y=prev_global_y,
-                prev_global_z=prev_global_z,
-                active_agents=active_agents,
-                local_changed_agents=local_changed_agents,
-                neighbors=neighbors,
+                clusters=clusters,
             )
 
-            total_comm_messages += comm_stats["messages"]
-            total_event_broadcasts += comm_stats["broadcasts"]
-            total_scope_agents += comm_stats["scope_agents"]
-            total_changed_tasks += len(changed_tasks)
-
+            changed_tasks = {
+                task_id
+                for task_id in task_ids
+                if prev_global_z.get(task_id) != global_z.get(task_id)
+                or abs(
+                    prev_global_y.get(task_id, NEG_INF) - global_y.get(task_id, NEG_INF)
+                )
+                > EPS
+            }
             any_change = any_change or bool(pruned_agents) or bool(changed_tasks)
 
             if not any_change:
@@ -598,10 +491,14 @@ class ImprovedCBBASolver:
                 prev_global_z=prev_global_z,
                 global_z=global_z,
                 pruned_agents=pruned_agents,
-                neighbors=neighbors,
+                membership=membership,
+                clusters=clusters,
             )
             if not active_agents and changed_tasks:
                 active_agents = {uav.idx for uav in env.uavs if uav.alive}
+
+            comm_cost += len(active_agents)
+            active_agent_trace.append(len(active_agents))
 
         assignments = self._rebuild_assignments_from_winners(env, global_z, global_y)
         return {
@@ -609,15 +506,13 @@ class ImprovedCBBASolver:
             "iterations": iterations,
             "winners": global_z,
             "winning_bids": global_y,
-            "clusters": [],
-            "comm_messages": total_comm_messages,
-            "event_broadcasts": total_event_broadcasts,
-            "avg_scope_agents": total_scope_agents / max(iterations, 1),
-            "changed_tasks": total_changed_tasks,
+            "clusters": clusters,
+            "comm_cost": comm_cost,
+            "active_agent_trace": active_agent_trace,
         }
 
 
-class CBBAEnv:
+class CBBAKMEnv:
     """
     与你现有框架兼容的改进版 CBBA 环境。
     main 中把
@@ -636,8 +531,6 @@ class CBBAEnv:
         max_bundle_size: Optional[int] = None,
         max_consensus_rounds: int = 50,
         cluster_count: Optional[int] = None,
-        comm_radius: Optional[float] = None,
-        sparse_neighbor_k: int = 2,
         debug: bool = False,
     ):
         self.init_uavs = copy.deepcopy(uavs)
@@ -648,8 +541,6 @@ class CBBAEnv:
             max_bundle_size=max_bundle_size,
             max_consensus_rounds=max_consensus_rounds,
             cluster_count=cluster_count,
-            comm_radius=comm_radius,
-            sparse_neighbor_k=sparse_neighbor_k,
             debug=debug,
         )
         self.reset()
@@ -676,10 +567,7 @@ class CBBAEnv:
         self.fitness_count = 0.0
         self.total_cbba_iters = 0
         self.total_replan_rounds = 0
-        self.total_comm_messages = 0
-        self.total_event_broadcasts = 0
-        self.total_avg_scope_agents = 0.0
-        self.total_changed_tasks = 0
+        self.total_comm_cost = 0
         self.round_history: List[dict] = []
         return self
 
@@ -1005,10 +893,7 @@ class CBBAEnv:
             wave_result = self.solver.solve_current_wave(self, available_tasks)
             self.total_cbba_iters += wave_result["iterations"]
             self.total_replan_rounds += 1
-            self.total_comm_messages += wave_result.get("comm_messages", 0)
-            self.total_event_broadcasts += wave_result.get("event_broadcasts", 0)
-            self.total_avg_scope_agents += wave_result.get("avg_scope_agents", 0.0)
-            self.total_changed_tasks += wave_result.get("changed_tasks", 0)
+            self.total_comm_cost += wave_result["comm_cost"]
 
             execute_result = self.execute_assignments(wave_result["assignments"])
             self.round_history.append(
@@ -1020,10 +905,6 @@ class CBBAEnv:
                         [self.uavs[idx].id for idx in cluster]
                         for cluster in wave_result.get("clusters", [])
                     ],
-                    "comm_messages": wave_result.get("comm_messages", 0),
-                    "event_broadcasts": wave_result.get("event_broadcasts", 0),
-                    "avg_scope_agents": wave_result.get("avg_scope_agents", 0.0),
-                    "changed_tasks": wave_result.get("changed_tasks", 0),
                     "winners": {
                         task_id: (None if uav_idx is None else self.uavs[uav_idx].id)
                         for task_id, uav_idx in wave_result["winners"].items()
@@ -1042,22 +923,6 @@ class CBBAEnv:
         total_time = calculate_all_voyage_time(self.targets)
         unassigned_tasks = [task.id for task in self.tasks if not task.flag]
 
-        avg_scope_agents = (
-            self.total_avg_scope_agents / self.total_replan_rounds
-            if self.total_replan_rounds
-            else 0.0
-        )
-        comm_per_round = (
-            self.total_comm_messages / self.total_replan_rounds
-            if self.total_replan_rounds
-            else 0.0
-        )
-        comm_per_success = (
-            self.total_comm_messages / self.success_count
-            if self.success_count
-            else 0.0
-        )
-
         return {
             "tasks_num": tasks_num,
             "success_count": self.success_count,
@@ -1072,13 +937,8 @@ class CBBAEnv:
             "done": len(unassigned_tasks) == 0,
             "replan_rounds": self.total_replan_rounds,
             "total_cbba_iters": self.total_cbba_iters,
-            "total_comm_messages": self.total_comm_messages,
-            "total_event_broadcasts": self.total_event_broadcasts,
-            "avg_scope_agents": avg_scope_agents,
-            "comm_per_round": comm_per_round,
-            "comm_per_success": comm_per_success,
-            "total_changed_tasks": self.total_changed_tasks,
             "round_history": self.round_history,
+            "comm_cost": self.total_comm_cost,
         }
 
 
@@ -1088,9 +948,5 @@ def format_episode_metrics(ep: int, result: dict) -> str:
         f"Success: {result['success_rate']:.2f} | "
         f"distance: {result['total_distance']:.2f}, "
         f"time: {result['total_time']:.2f} | "
-        f"rounds: {result['replan_rounds']}, cbba_iters: {result['total_cbba_iters']} | "
-        f"comm_msgs: {result['total_comm_messages']}, "
-        f"broadcasts: {result['total_event_broadcasts']}, "
-        f"comm/success: {result['comm_per_success']:.2f}, "
-        f"avg_scope: {result['avg_scope_agents']:.2f}"
+        f"rounds: {result['replan_rounds']}, cbba_iters: {result['total_cbba_iters']}"
     )

@@ -7,7 +7,7 @@ from calculate import log_all_voyage_time
 # from task_allocation import CBBAEnv, format_episode_metrics
 
 from cbba_pro import CBBAEnv, format_episode_metrics
-from plt.plot import plot_overall_result, plot_task_type_subfigures
+from plt.plot_path import plot_overall_result, plot_task_type_subfigures
 
 
 # todo:
@@ -19,6 +19,7 @@ from plt.plot import plot_overall_result, plot_task_type_subfigures
 # 5.再找一个指标能表明分布式算法的痛点,并且我的最好
 # 6.10*10 和 20*20 比对无人机航程和任务完成时间
 # 7.把10*10的数据放到论文里
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run standard CBBA on local csv data.")
@@ -92,6 +93,7 @@ def run_once(ep: int, args):
 
     print(format_episode_metrics(ep, result))
     print_metrics(env)
+    # log_all_voyage_time(env.uavs, env.targets)
 
     if result["unassigned_tasks"]:
         print("unassigned_tasks:", result["unassigned_tasks"])
@@ -104,12 +106,8 @@ def run_once(ep: int, args):
     if args.plot:
         os.makedirs(args.save_dir, exist_ok=True)
 
-        overall_path = os.path.join(
-            args.save_dir, f"cbba_pro{args.scale}.pdf"
-        )
-        by_type_path = os.path.join(
-            args.save_dir, f"cbba_pro_three{args.scale}.pdf"
-        )
+        overall_path = os.path.join(args.save_dir, f"cbba_pro{args.scale}.pdf")
+        by_type_path = os.path.join(args.save_dir, f"cbba_pro_three{args.scale}.pdf")
 
         plot_overall_result(env, result, overall_path, dpi=args.dpi)
         plot_task_type_subfigures(env, result, by_type_path, dpi=args.dpi)

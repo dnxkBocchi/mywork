@@ -60,6 +60,14 @@ class CBBASolver:
             states.append(agent_state)
         return states
 
+    def _estimate_dense_comm_cost(self, env) -> int:
+        """估计标准 CBBA 在全连接一致性下的单轮通信消息量。"""
+        alive_agents = sum(1 for uav in env.uavs if getattr(uav, "alive", True))
+        if alive_agents <= 1:
+            return 0
+        # 每轮所有存活 UAV 都向其余 UAV 广播一次，按有向消息条数计。
+        return alive_agents * (alive_agents - 1)
+
     def _bundle_construction(
         self,
         env,
@@ -240,6 +248,8 @@ class CBBASolver:
             return {
                 "assignments": {},
                 "iterations": 0,
+                "cbba_iters": 0,
+                "comm_messages": 0,
                 "winners": {},
                 "winning_bids": {},
             }
@@ -250,9 +260,14 @@ class CBBASolver:
         global_z = {task_id: None for task_id in task_ids}
 
         iterations = 0
+        total_comm_messages = 0
+
         while iterations < self.max_consensus_rounds:
             iterations += 1
             any_change = False
+
+            # 标准 CBBA：每轮一致性阶段默认所有存活 UAV 全局共享 winner/bid 信息。
+            total_comm_messages += self._estimate_dense_comm_cost(env)
 
             for agent_state in agent_states:
                 changed = self._bundle_construction(
@@ -269,10 +284,15 @@ class CBBASolver:
                 break
 
         assignments = self._rebuild_assignments_from_winners(env, global_z, global_y)
+        # print(
+        #     f"CBBA completed in {iterations} iterations with {total_comm_messages} messages."
+        # )
 
         return {
             "assignments": assignments,
-            "iterations": iterations,
+            "iterations": iterations,  # 兼容旧接口
+            "cbba_iters": iterations,  # 论文/实验里可直接使用
+            "comm_messages": total_comm_messages,
             "winners": global_z,
             "winning_bids": global_y,
         }

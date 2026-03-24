@@ -11,9 +11,11 @@ from task_allocation import CBBAEnv, format_episode_metrics
 from cbba_basic import CBBASolver
 from auction_algorithm import AuctionSolver
 from contractnet_algorithm import ContractNetSolver
+from cbba_kmeans import CBBAKMEnv, ImprovedCBBASolver
+from calculate import log_all_voyage_time
 
 
-ALGORITHMS = ("cbba", "auction", "contractnet", "all")
+ALGORITHMS = ("auction", "contractnet", "cbba", "cbba_kmeans", "all")
 
 
 def parse_args():
@@ -76,7 +78,7 @@ def print_metrics(env):
         distance = uav._init_voyage - uav.voyage
         print(f"{uav.id}: voyage={distance:.2f}")
     for target in targets:
-        print(f"{target.id}: finish_time={target.total_time:.2f}") 
+        print(f"{target.id}: finish_time={target.total_time:.2f}")
 
 
 def build_solver(args, name: str):
@@ -90,6 +92,14 @@ def build_solver(args, name: str):
         return AuctionSolver(debug=False)
     if name == "contractnet":
         return ContractNetSolver(max_passes=args.contract_passes, debug=False)
+    if name == "cbba_kmeans":
+        return ImprovedCBBASolver(
+            max_bundle_size=args.max_bundle_size,
+            max_consensus_rounds=args.max_consensus_rounds,
+            cluster_count=None,
+            kmeans_iters=8,
+            debug=False,
+        )
     raise ValueError(f"未知算法: {name}")
 
 
@@ -97,21 +107,30 @@ def run_once(ep: int, args, algo_name: str):
     uavs, tasks, targets = load_different_scale_csv(
         args.uav_csv, args.task_csv, size=args.scale
     )
-    env = CBBAEnv(
-        uavs=uavs,
-        targets=targets,
-        tasks=tasks,
-        max_bundle_size=args.max_bundle_size,
-        max_consensus_rounds=args.max_consensus_rounds,
-        debug=False,
-    )
+    if algo_name == "cbba_kmeans":
+        env = CBBAKMEnv(
+            uavs=uavs,
+            targets=targets,
+            tasks=tasks,
+            max_bundle_size=args.max_bundle_size,
+            max_consensus_rounds=args.max_consensus_rounds,
+        )
+    else:
+        env = CBBAEnv(
+            uavs=uavs,
+            targets=targets,
+            tasks=tasks,
+            max_bundle_size=args.max_bundle_size,
+            max_consensus_rounds=args.max_consensus_rounds,
+            debug=False,
+        )
     env.solver = build_solver(args, algo_name)
     result = env.run_episode()
 
     print(f"[{algo_name.upper()}] " + format_episode_metrics(ep, result))
-    if algo_name == "cbba":
-        print_metrics(env)
-    
+    # print_metrics(env)
+    # log_all_voyage_time(env.uavs, env.targets)
+
     if result["unassigned_tasks"]:
         print("unassigned_tasks:", result["unassigned_tasks"])
     else:
@@ -148,7 +167,7 @@ def main():
     algo_list = (
         [args.algorithm]
         if args.algorithm != "all"
-        else ["cbba", "auction", "contractnet"]
+        else ["auction", "contractnet", "cbba", "cbba_kmeans"]
     )
 
     print("=" * 40)
