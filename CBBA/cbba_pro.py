@@ -649,8 +649,8 @@ class CBBAEnv:
             return False
         if not self._can_type_execute(uav, task):
             return False
-        if self._capability_ratio(uav, task) <= EPS:
-            return False
+        # if self._capability_ratio(uav, task) <= EPS:
+        #     return False
         if task.type == 1 and task.ammunition > uav.ammunition + EPS:
             return False
         if task.type in (2, 3) and task.time > uav.time + EPS:
@@ -691,17 +691,17 @@ class CBBAEnv:
         if not self._static_feasible(uav, task):
             return -1.0
 
-        fit_r = self._capability_ratio(uav, task)
+        fit_r = 0
         voyage_r = 1.0 - min(
             calculate_voyage_distance(uav, task) / self.max_total_voyage, 1.0
         )
         time_r = 1.0 - min(calculate_voyage_time(uav, task) / self.max_total_time, 1.0)
         delay_r = 1.0 - min(waiting_time / self.max_total_time, 1.0)
 
-        alpha = 0.25
-        beta = 0.30
-        gamma = 0.30
-        eta = 0.15
+        alpha = 0.0
+        beta = 0.50
+        gamma = 0.50
+        eta = 0.00
         return alpha * fit_r + beta * voyage_r + gamma * time_r + eta * delay_r
 
     def _evaluate_path_stats(self, uav: Uav, path_ids: List[str]) -> dict:
@@ -830,9 +830,9 @@ class CBBAEnv:
 
         if task.type == 3:
             task.target.total_time = task.end_time
-            print(
-                f"Target {task.target.id} completed at time {task.target.total_time:.2f}"
-            )
+            # print(
+            #     f"Target {task.target.id} completed at time {task.target.total_time:.2f}"
+            # )
 
     def execute_assignments(self, assignments: Dict[int, List[Task]]) -> dict:
         executed = []
@@ -854,13 +854,14 @@ class CBBAEnv:
                 if reward < 0:
                     continue
 
-                fit = self._capability_ratio(uav, task)
+                fit = 0
                 self._apply_transition_real(uav, task)
 
                 round_reward += reward
                 round_success += 1
                 round_fitness += fit
                 executed.append((uav.id, task.id, reward, fit))
+                uav.tasks.append(task.id)
 
         self.episode_reward += round_reward
         self.success_count += round_success
@@ -918,7 +919,7 @@ class CBBAEnv:
             "fitness_count": self.fitness_count,
             "episode_reward": self.episode_reward,
             "success_rate": self.success_count / tasks_num if tasks_num else 0.0,
-            "fitness_rate": self.fitness_count / tasks_num if tasks_num else 0.0,
+            "fitness_rate": 0 / tasks_num if tasks_num else 0.0,
             "total_reward": self.episode_reward / tasks_num if tasks_num else 0.0,
             "total_distance": total_distance,
             "total_time": total_time,
@@ -934,7 +935,6 @@ def format_episode_metrics(ep: int, result: dict) -> str:
     return (
         f"Ep {ep} | Avg Reward: {result['total_reward']:.3f} | "
         f"Success: {result['success_rate']:.2f} | "
-        f"Fitness: {result['fitness_rate']:.2f} | "
         f"distance: {result['total_distance']:.2f}, "
         f"time: {result['total_time']:.2f} | "
         f"rounds: {result['replan_rounds']}, cbba_iters: {result['total_cbba_iters']}"

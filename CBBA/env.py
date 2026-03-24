@@ -9,9 +9,6 @@ class Uav:
     - id: 节点ID
     - type: 节点类型 (1打击、2侦查，评估、3通用)
     - location: 节点位置
-    - strike: 打击能力
-    - reconnaissance: 侦察能力
-    - assessment: 评估能力
     - ammunition: 弹药量资源
     - time: 侦查评估任务时间资源
     - voyage: 航程
@@ -24,9 +21,6 @@ class Uav:
         id: str,
         type: int,
         location: Tuple[float, float],
-        strike: float,
-        reconnaissance: float,
-        assessment: float,
         ammunition: float,
         time: float,
         voyage: float,
@@ -35,9 +29,6 @@ class Uav:
         self.id = id
         self.type = type
         self.location = (round(location[0], 2), round(location[1], 2))
-        self.strike = round(strike, 2)
-        self.reconnaissance = round(reconnaissance, 2)
-        self.assessment = round(assessment, 2)
         self.ammunition = round(ammunition, 2)
         self.time = round(time, 2)
         self.voyage = round(voyage, 2)
@@ -46,6 +37,7 @@ class Uav:
         self.idx = None  # 无人机索引，初始化为None
         self.task_nums = 0  # 无人机任务数量，初始化为0
         # === 新增：存活状态 ===
+        self.tasks = []  # 已分配任务列表
         self.alive = True
 
         # 保存一份初始状态
@@ -63,7 +55,7 @@ class Uav:
         self.end_time = 0.0
         self.task_nums = 0
         self.alive = True  # 重置时复活
-
+        self.tasks = []  # 清空已分配任务列表
 
 class Task:
     """
@@ -71,9 +63,6 @@ class Task:
     - id: 任务ID
     - type: 任务类型 (1打击、2侦查、3评估)
     - location: 任务位置
-    - strike: 打击需求
-    - reconnaissance: 侦察需求
-    - assessment: 评估需求
     - ammunition: 打击任务弹药需求
     - time: 侦查评估任务时间需求
     - value: 任务价值
@@ -84,18 +73,12 @@ class Task:
         id: str,
         type: int,
         location: Tuple[float, float],
-        strike: float,
-        reconnaissance: float,
-        assessment: float,
         ammunition: float,
         time: float,
     ):
         self.id = id
         self.type = type
         self.location = (round(location[0], 2), round(location[1], 2))
-        self.strike = round(strike, 2)
-        self.reconnaissance = round(reconnaissance, 2)
-        self.assessment = round(assessment, 2)
         self.ammunition = round(ammunition, 2)
         self.time = round(time, 2)
         self.waiting_time = 0.0  # 任务等待时间
@@ -148,9 +131,6 @@ def create_random_target(id_str: str, map_size: float = 100.0) -> "Target":
             id=f"{id_str}_t{i}",
             type=t_type,
             location=location,  # 任务位置同目标位置
-            strike=np.random.uniform(0.6, 1) if t_type == 1 else 0,
-            reconnaissance=np.random.uniform(0.6, 1) if t_type == 2 else 0,
-            assessment=np.random.uniform(0.6, 1) if t_type == 3 else 0,
             ammunition=np.random.uniform(0, 1) if t_type == 1 else 0,
             time=np.random.uniform(0, 1) if t_type in [2, 3] else 0,
         )
@@ -177,9 +157,6 @@ def load_uavs(csv_path: str) -> List[Uav]:
             id=row["id"],
             type=int(row["type"]),
             location=parse_location(row["location"]),
-            strike=float(row["strike"]),
-            reconnaissance=float(row["reconnaissance"]),
-            assessment=float(row["assessment"]),
             ammunition=float(row["ammunition"]),
             time=float(row["time"]),
             voyage=float(row["voyage"]),
@@ -197,9 +174,6 @@ def load_tasks(csv_path: str) -> List[Task]:
             id=row["id"],
             type=int(row["type"]),
             location=parse_location(row["location"]),
-            strike=float(row["strike"]),
-            reconnaissance=float(row["reconnaissance"]),
-            assessment=float(row["assessment"]),
             ammunition=float(row["ammunition"]),
             time=float(row["time"]),
         )

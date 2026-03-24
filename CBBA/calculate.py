@@ -7,16 +7,6 @@ import math
 debug = False
 
 
-def calculate_back_voyage(uav):
-    """
-    计算无人机返回基地的航程
-    """
-    x1, y1 = uav._init_location
-    x2, y2 = uav.location
-    distance = math.hypot(x2 - x1, y2 - y1)
-    return distance
-
-
 def calculate_all_voyage_distance(uavs):
     """
     计算所有无人机的航程
@@ -24,7 +14,7 @@ def calculate_all_voyage_distance(uavs):
     total_distance = 0
     for uav in uavs:
         distance = uav._init_voyage - uav.voyage
-        total_distance += distance + calculate_back_voyage(uav)
+        total_distance += distance
     return total_distance
 
 
@@ -82,7 +72,7 @@ def calculate_max_possible_voyage_time(uavs, targets):
             current_pos = task_location  # 更新当前位置
         max_voyage = max(max_voyage, current_voyage)
     min_speed = min(uav.speed for uav in uavs) if uavs else 1
-    max_total_time = max_voyage / min_speed  # 最小速度下的最大时间
+    max_total_time = max_voyage / 2 / min_speed  # 最小速度下的最大时间
     return max_voyage, max_total_time
 
 
@@ -143,7 +133,7 @@ def calculate_reward(uav, task, target, max_total_voyage, max_total_time):
     if not check_constraints(uav, task):
         return -1
 
-    fit_r = calculate_fitness_r(task, uav)
+    fit_r = 0
     voyage_r = calculate_voyage_r(task, uav, max_total_voyage)
     time_r = calculate_time_r(task, uav, max_total_time)
     if debug:
@@ -151,9 +141,9 @@ def calculate_reward(uav, task, target, max_total_voyage, max_total_time):
             f"fit_r: {fit_r:.2f}, voyage_r: {voyage_r:.2f}, time_r: {time_r:.2f}, "
             f"uav: {uav.id}, task: {task.id}"
         )
-    alpha = 0.2
-    beta = 0.4
-    gamma = 0.4
+    alpha = 0.0
+    beta = 0.5
+    gamma = 0.5
     return alpha * fit_r + beta * voyage_r + gamma * time_r
 
 
@@ -214,7 +204,6 @@ def log_all_voyage_time(uavs, targets):
         f.write("voyage: ")
         for i, uav in enumerate(uavs, 1):
             distance = uav._init_voyage - uav.voyage
-            # distance += calculate_back_voyage(uav)  # 加上返回基地的航程
             # 记录每组数据
             f.write(f"{distance:.2f}, ")
         f.write("\ntime: ")  # 每组数据后换行

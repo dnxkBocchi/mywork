@@ -253,17 +253,17 @@ def plot_targets(ax, targets, placed_bboxes, renderer):
         used_label = True
 
         # 如需显示 target id，可打开下面代码
-        # add_nonoverlap_text(
-        #     ax,
-        #     x,
-        #     y,
-        #     target.id,
-        #     placed_bboxes,
-        #     renderer,
-        #     color="black",
-        #     fontsize=8,
-        #     zorder=5,
-        # )
+        add_nonoverlap_text(
+            ax,
+            x,
+            y,
+            target.id,
+            placed_bboxes,
+            renderer,
+            color="black",
+            fontsize=8,
+            zorder=5,
+        )
 
 
 def plot_tasks(ax, tasks, placed_bboxes, renderer, only_task_type=None):
@@ -434,7 +434,7 @@ def plot_overall_result(env, result, save_path, dpi=200):
 
     placed_bboxes = []
     plot_targets(ax, targets, placed_bboxes, renderer)
-    plot_tasks(ax, tasks, placed_bboxes, renderer)
+    # plot_tasks(ax, tasks, placed_bboxes, renderer)
     plot_uavs_and_routes(
         ax, initial_uavs, task_by_id, route_by_uav, placed_bboxes, renderer
     )
@@ -469,7 +469,7 @@ def plot_task_type_subfigures(env, result, save_path, dpi=200):
         renderer = fig.canvas.get_renderer()
 
         placed_bboxes = []
-        plot_targets(ax, targets, placed_bboxes, renderer)
+        # plot_targets(ax, targets, placed_bboxes, renderer)
         plot_tasks(ax, tasks, placed_bboxes, renderer, only_task_type=task_type)
         plot_uavs_and_routes(
             ax,

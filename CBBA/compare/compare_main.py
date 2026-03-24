@@ -67,6 +67,18 @@ def print_round_history(round_history):
             print("executed: []")
 
 
+def print_metrics(env):
+    uavs = env.uavs
+    targets = env.targets
+    for uav in uavs:
+        print(f"{uav.id}: tasks={uav.tasks}")
+    for uav in uavs:
+        distance = uav._init_voyage - uav.voyage
+        print(f"{uav.id}: voyage={distance:.2f}")
+    for target in targets:
+        print(f"{target.id}: finish_time={target.total_time:.2f}") 
+
+
 def build_solver(args, name: str):
     if name == "cbba":
         return CBBASolver(
@@ -97,10 +109,9 @@ def run_once(ep: int, args, algo_name: str):
     result = env.run_episode()
 
     print(f"[{algo_name.upper()}] " + format_episode_metrics(ep, result))
-    print(
-        f"tasks_num: {result['tasks_num']} | success_count: {result['success_count']} | "
-        f"fitness_count: {result['fitness_count']:.3f}"
-    )
+    if algo_name == "cbba":
+        print_metrics(env)
+    
     if result["unassigned_tasks"]:
         print("unassigned_tasks:", result["unassigned_tasks"])
     else:
@@ -140,20 +151,15 @@ def main():
         else ["cbba", "auction", "contractnet"]
     )
 
-    print("=" * 80)
+    print("=" * 40)
     print("Task Allocation Compare Entry")
-    print(f"uav_csv : {args.uav_csv}")
-    print(f"task_csv: {args.task_csv}")
     print(f"scale   : {args.scale}")
-    print(f"episodes: {args.episodes}")
-    print(f"algos   : {algo_list}")
-    print("=" * 80)
 
     for algo_name in algo_list:
         algo_results = []
-        print("\n" + "-" * 80)
+        print("\n" + "-" * 40)
         print(f"Running {algo_name.upper()}")
-        print("-" * 80)
+        print("-" * 40)
         for ep in range(1, args.episodes + 1):
             result = run_once(ep, args, algo_name)
             algo_results.append(result)

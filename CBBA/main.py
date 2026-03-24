@@ -11,8 +11,14 @@ from plt.plot import plot_overall_result, plot_task_type_subfigures
 
 
 # todo:
+# 实验：
+# 1.分配结果看负载均衡(做一个表,对比CBBA,CBBA_PRO)
+# 2.每个无人机的航程和每个目标的完成时间(画图,对比四个实验)
 # 3.加新增和坠毁的无人机处理
-
+# 4.经典三个指标图(完成率\时间\航程)
+# 5.再找一个指标能表明分布式算法的痛点,并且我的最好
+# 6.10*10 和 20*20 比对无人机航程和任务完成时间
+# 7.把10*10的数据放到论文里
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run standard CBBA on local csv data.")
@@ -55,6 +61,18 @@ def print_round_history(round_history):
             print("executed: []")
 
 
+def print_metrics(env):
+    uavs = env.uavs
+    targets = env.targets
+    for uav in uavs:
+        print(f"{uav.id}: tasks={uav.tasks}")
+    for uav in uavs:
+        distance = uav._init_voyage - uav.voyage
+        print(f"{uav.id}: voyage={distance:.2f}")
+    for target in targets:
+        print(f"{target.id}: finish_time={target.total_time:.2f}")
+
+
 def run_once(ep: int, args):
     uavs, tasks, targets = load_different_scale_csv(
         args.uav_csv,
@@ -73,10 +91,7 @@ def run_once(ep: int, args):
     result = env.run_episode()
 
     print(format_episode_metrics(ep, result))
-    print(
-        f"tasks_num: {result['tasks_num']} | success_count: {result['success_count']} | "
-        f"fitness_count: {result['fitness_count']:.3f}"
-    )
+    print_metrics(env)
 
     if result["unassigned_tasks"]:
         print("unassigned_tasks:", result["unassigned_tasks"])
@@ -90,10 +105,10 @@ def run_once(ep: int, args):
         os.makedirs(args.save_dir, exist_ok=True)
 
         overall_path = os.path.join(
-            args.save_dir, f"cbba_allocation_overall_ep{ep}.png"
+            args.save_dir, f"cbba_pro{args.scale}.pdf"
         )
         by_type_path = os.path.join(
-            args.save_dir, f"cbba_allocation_by_task_type_ep{ep}.png"
+            args.save_dir, f"cbba_pro_three{args.scale}.pdf"
         )
 
         plot_overall_result(env, result, overall_path, dpi=args.dpi)
@@ -109,11 +124,9 @@ def run_once(ep: int, args):
 def main():
     args = parse_args()
 
-    print("=" * 80)
-    print("CBBA Test Entry")
+    print("=" * 40)
+    print("CBBA_pro Test Entry")
     print(f"scale   : {args.scale}")
-    print(f"episodes: {args.episodes}")
-    print("=" * 80)
 
     for ep in range(1, args.episodes + 1):
         run_once(ep, args)
