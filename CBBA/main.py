@@ -3,24 +3,41 @@ import os
 
 from env import load_different_scale_csv
 from calculate import log_all_voyage_time
-
-# from task_allocation import CBBAEnv, format_episode_metrics
-
-from cbba_pro import CBBAEnv, format_episode_metrics
 from plt.plot_path import plot_overall_result, plot_task_type_subfigures
 
+# from cbba_pro import CBBAEnv, format_episode_metrics
+from cbba_pro_dynamic import CBBAEnv, format_episode_metrics
 
 # todo:
-# 实验：
-# 1.分配结果看负载均衡(做一个表,对比CBBA,CBBA_PRO)
-# 2.每个无人机的航程和每个目标的完成时间(画图,对比四个实验)
-# 3.加新增和坠毁的无人机处理
-# 4.经典三个指标图(完成率\时间\航程)
+# 3.加新增目标和坠毁的无人机处理
 # 5.再找一个指标能表明分布式算法的痛点,并且我的最好
-# 6.10*10 和 20*20 比对无人机航程和任务完成时间
 # 7.把10*10的数据放到论文里
+# 相关研究扯上负载均衡
+# 匹配度改名
+
+# my
+# UAVS1: tasks=['TASK06S', 'TASK08S']
+# UAVS2: tasks=['TASK01S']
+# UAVRA1: tasks=['TASK19R', 'TASK13R', 'TASK29A', 'TASK27A']
+# UAVRA2: tasks=['TASK15R', 'TASK12R', 'TASK22A']
+# UAVG1: tasks=['TASK17R', 'TASK07S', 'TASK09S', 'TASK03S', 'TASK23A']
+# UAVS3: tasks=['TASK10S', 'TASK04S']
+# UAVRA3: tasks=['TASK11R', 'TASK21A']
+# UAVRA4: tasks=['TASK16R', 'TASK18R', 'TASK28A', 'TASK26A']
+# UAVRA5: tasks=['TASK20R', 'TASK14R', 'TASK24A', 'TASK30A']
+# UAVG2: tasks=['TASK05S', 'TASK02S', 'TASK25A']
 
 
+# UAVS1: tasks=['TASK06S', 'TASK08S']
+# UAVS2: tasks=['TASK01S']
+# UAVRA1: tasks=['TASK19R', 'TASK13R', 'TASK23A']
+# UAVRA2: tasks=['TASK15R', 'TASK12R', 'TASK22A']
+# UAVG1: tasks=['TASK17R', 'TASK07S', 'TASK09S', 'TASK03S', 'TASK29A', 'TASK27A']
+# UAVS3: tasks=['TASK10S', 'TASK04S']
+# UAVRA3: tasks=['TASK11R', 'TASK21A']
+# UAVRA4: tasks=['TASK16R', 'TASK18R', 'TASK28A', 'TASK26A']
+# UAVRA5: tasks=['TASK20R', 'TASK14R', 'TASK24A', 'TASK30A']
+# UAVG2: tasks=['TASK05S', 'TASK02S', 'TASK25A']
 def parse_args():
     parser = argparse.ArgumentParser(description="Run standard CBBA on local csv data.")
     parser.add_argument("--uav_csv", type=str, default="data/test/uav.csv")
@@ -30,7 +47,7 @@ def parse_args():
     parser.add_argument("--print_detail", type=bool, default=False)
     parser.add_argument("--save_dir", type=str, default="outputs")
     parser.add_argument("--dpi", type=int, default=200)
-    parser.add_argument("--plot", type=bool, default=False)
+    parser.add_argument("--plot", type=bool, default=True)
     parser.add_argument(
         "--max_consensus_rounds",
         type=int,
@@ -69,7 +86,11 @@ def print_metrics(env):
         print(f"{uav.id}: tasks={uav.tasks}")
     for uav in uavs:
         distance = uav._init_voyage - uav.voyage
-        print(f"{uav.id}: voyage={distance:.2f}")
+        ammunition = uav._init_ammunition - uav.ammunition
+        time = uav._init_time - uav.time
+        print(
+            f"{uav.id}: voyage={distance:.2f}, ammunition={ammunition:.2f}, time={time:.2f}"
+        )
     for target in targets:
         print(f"{target.id}: finish_time={target.total_time:.2f}")
 
@@ -89,9 +110,20 @@ def run_once(ep: int, args):
         max_consensus_rounds=args.max_consensus_rounds,
         debug=False,
     )
-    result = env.run_episode()
+    # result = env.run_episode()
+    result = env.run_episode_with_dynamic_events(
+        target_add_round=2,  # 第2轮触发新增目标
+        crash_round=3,  # 第3轮触发无人机坠毁
+        target_prefix="TASKDYN01",
+        target_location=(38.4, 81.2),
+        strike_ammunition=3,
+        recon_time=5,
+        assessment_time=4,
+        crash_type=2,  # 坠毁 type=2 的无人机
+    )
+    print(format_episode_metrics(1, result))
 
-    print(format_episode_metrics(ep, result))
+    # print(format_episode_metrics(ep, result))
     print_metrics(env)
     # log_all_voyage_time(env.uavs, env.targets)
 
@@ -106,14 +138,14 @@ def run_once(ep: int, args):
     if args.plot:
         os.makedirs(args.save_dir, exist_ok=True)
 
-        overall_path = os.path.join(args.save_dir, f"cbba_pro{args.scale}.pdf")
-        by_type_path = os.path.join(args.save_dir, f"cbba_pro_three{args.scale}.pdf")
+        # overall_path = os.path.join(args.save_dir, f"cbba_pro_allocation.pdf")
+        by_type_path = os.path.join(args.save_dir, f"cbba_pro_uav_path_dynamic.pdf")
 
-        plot_overall_result(env, result, overall_path, dpi=args.dpi)
+        # plot_overall_result(env, result, overall_path, dpi=args.dpi)
         plot_task_type_subfigures(env, result, by_type_path, dpi=args.dpi)
 
         print("\nSaved figures:")
-        print(overall_path)
+        # print(overall_path)
         print(by_type_path)
 
     return result

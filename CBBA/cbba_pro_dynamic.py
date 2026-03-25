@@ -56,6 +56,192 @@ class ImprovedCBBASolver:
     def _log(self, *args):
         if self.debug:
             print(*args)
+    def _emit_event_log(self, message: str):
+        self.event_logs.append(message)
+        print(message)
+
+    def _new_blank_instance(self, cls):
+        try:
+            return cls.__new__(cls)
+        except Exception:
+            class _Blank:
+                pass
+
+            return _Blank()
+
+    def _recompute_global_bounds(self):
+        self.max_total_voyage, self.max_total_time = calculate_max_possible_voyage_time(
+            self.uavs, self.targets
+        )
+        self.max_total_voyage = max(self.max_total_voyage, 1.0)
+        self.max_total_time = max(self.max_total_time, 1.0)
+
+    def _build_dynamic_target(
+        self,
+        target_prefix: str,
+        location: Tuple[float, float],
+        strike_ammunition: int = 3,
+        recon_time: float = 5.0,
+        assessment_time: float = 4.0,
+    ) -> Target:
+        base_prefix = target_prefix
+        suffix = 1
+        while (
+            f"{target_prefix}S" in self.task_dict
+            or f"{target_prefix}R" in self.task_dict
+            or f"{target_prefix}A" in self.task_dict
+        ):
+            target_prefix = f"{base_prefix}_{suffix}"
+            suffix += 1
+
+        target = self._new_blank_instance(Target)
+        target.id = target_prefix
+        target.location = location
+        target.total_time = 0.0
+        target.tasks = []
+
+        def make_task(task_id: str, task_type: int, ammunition: int, time_cost: float):
+            task = self._new_blank_instance(Task)
+            task.id = task_id
+            task.type = task_type
+            task.location = location
+            task.ammunition = ammunition
+            task.time = time_cost
+            task.flag = False
+            task.waiting_time = 0.0
+            task.end_time = 0.0
+            task.target = target
+            task.strike = 1.0 if task_type == 1 else 0.0
+            task.reconnaissance = 1.0 if task_type == 2 else 0.0
+            task.assessment = 1.0 if task_type == 3 else 0.0
+            return task
+
+        strike_task = make_task(f"{target_prefix}S", 1, strike_ammunition, 0.0)
+        recon_task = make_task(f"{target_prefix}R", 2, 0, recon_time)
+        assess_task = make_task(f"{target_prefix}A", 3, 0, assessment_time)
+        target.tasks = [strike_task, recon_task, assess_task]
+        return target
+
+    def add_dynamic_target(
+        self,
+        target_prefix: str = "TASKDYN01",
+        location: Tuple[float, float] = (38.4, 81.2),
+        strike_ammunition: int = 3,
+        recon_time: float = 5.0,
+        assessment_time: float = 4.0,
+    ) -> Target:
+        target = self._build_dynamic_target(
+            target_prefix=target_prefix,
+            location=location,
+            strike_ammunition=strike_ammunition,
+            recon_time=recon_time,
+            assessment_time=assessment_time,
+        )
+        self.targets.append(target)
+        self.tasks.extend(target.tasks)
+        for task in target.tasks:
+            self.task_dict[task.id] = task
+        self._recompute_global_bounds()
+        self._emit_event_log(
+            f"[动态事件-新增目标] 新增目标 {target.id}，位置={target.location}，新增任务={[task.id for task in target.tasks]}"
+        )
+        return target
+
+    def _select_crash_uav(self, crash_type: int = 2) -> Optional[Uav]:
+        candidates = [uav for uav in self.uavs if uav.alive and getattr(uav, "type", None) == crash_type]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda u: (u.idx, u.id))
+        return candidates[0]
+
+    def _collect_competition_snapshot(self, tasks: List[Task]) -> Dict[str, List[dict]]:
+        snapshot: Dict[str, List[dict]] = {}
+        for task in tasks:
+            candidates = []
+            for uav in self.uavs:
+                if not uav.alive:
+                    continue
+                if not self._static_feasible(uav, task):
+                    continue
+                gain, pos, delay = self.best_insertion_delay_first(uav, [], task.id)
+                if pos < 0 or gain <= EPS:
+                    continue
+                candidates.append(
+                    {
+                        "uav_idx": uav.idx,
+                        "uav_id": uav.id,
+                        "uav_type": uav.type,
+                        "gain": gain,
+                        "delay": delay,
+                        "insert_pos": pos,
+                    }
+                )
+            candidates.sort(key=lambda x: (-x["gain"], x["delay"], x["uav_idx"]))
+            snapshot[task.id] = candidates
+        return snapshot
+
+    def _winner_reason(self, winner_idx: Optional[int], winner_bid: float, candidates: List[dict]) -> str:
+        if winner_idx is None:
+            return "没有可行赢家，当前无 UAV 能满足类型/资源/航程约束。"
+        winner = next((c for c in candidates if c["uav_idx"] == winner_idx), None)
+        if winner is None:
+            return f"该 UAV 在一致性阶段保持全局最优 winning bid={winner_bid:.4f}。"
+        if len(candidates) == 1:
+            return "它是唯一满足任务类型、资源与航程约束的可行竞标者。"
+        runner_up = next((c for c in candidates if c["uav_idx"] != winner_idx), None)
+        if runner_up is None:
+            return "它是唯一有效竞标者。"
+        if winner["gain"] > runner_up["gain"] + EPS:
+            return (
+                f"它的边际收益最高（{winner['gain']:.4f}），高于次优 {runner_up['uav_id']} "
+                f"的 {runner_up['gain']:.4f}。"
+            )
+        if winner["delay"] < runner_up["delay"] - EPS:
+            return (
+                f"它与其他 UAV 收益接近，但插入延迟更小（{winner['delay']:.4f} < "
+                f"{runner_up['delay']:.4f}）。"
+            )
+        return (
+            f"它与其他 UAV 收益接近，按 CBBA 的 tie-break 规则由编号更小的 {winner['uav_id']} 获胜。"
+        )
+
+    def _print_competition_report(self, header: str, tasks: List[Task], snapshot: Dict[str, List[dict]], wave_result: dict):
+        self._emit_event_log(header)
+        for task in tasks:
+            candidates = snapshot.get(task.id, [])
+            self._emit_event_log(f"  任务 {task.id} (type={task.type}, location={task.location})")
+            if not candidates:
+                self._emit_event_log("    可行竞争 UAV: 无")
+            else:
+                for cand in candidates:
+                    self._emit_event_log(
+                        "    候选 -> "
+                        f"{cand['uav_id']} (type={cand['uav_type']}), "
+                        f"gain={cand['gain']:.4f}, delay={cand['delay']:.4f}, pos={cand['insert_pos']}"
+                    )
+            winner_idx = wave_result["winners"].get(task.id)
+            winner_bid = wave_result["winning_bids"].get(task.id, NEG_INF)
+            if winner_idx is None:
+                self._emit_event_log("    最终赢家: 无")
+                self._emit_event_log("    原因: 没有 UAV 成功获得该任务。")
+            else:
+                winner_uav = self.uavs[winner_idx]
+                reason = self._winner_reason(winner_idx, winner_bid, candidates)
+                self._emit_event_log(
+                    f"    最终赢家: {winner_uav.id} (type={winner_uav.type}), winning_bid={winner_bid:.4f}"
+                )
+                self._emit_event_log(f"    原因: {reason}")
+
+    def _merge_assignments(self, base_assignments: Dict[int, List[Task]], extra_assignments: Dict[int, List[Task]]) -> Dict[int, List[Task]]:
+        merged: Dict[int, List[Task]] = {idx: list(tasks) for idx, tasks in base_assignments.items()}
+        for uav_idx, task_list in extra_assignments.items():
+            merged.setdefault(uav_idx, [])
+            existing_ids = {task.id for task in merged[uav_idx]}
+            for task in task_list:
+                if task.id not in existing_ids:
+                    merged[uav_idx].append(task)
+                    existing_ids.add(task.id)
+        return merged
 
     def _init_agent_states(
         self, env, available_tasks: List[Task]
@@ -447,9 +633,6 @@ class ImprovedCBBASolver:
         active_agents: Set[int] = {uav.idx for uav in env.uavs if uav.alive}
         iterations = 0
 
-        comm_cost = 0
-        active_agent_trace = []
-
         while iterations < self.max_consensus_rounds:
             iterations += 1
             any_change = False
@@ -497,9 +680,6 @@ class ImprovedCBBASolver:
             if not active_agents and changed_tasks:
                 active_agents = {uav.idx for uav in env.uavs if uav.alive}
 
-            comm_cost += len(active_agents)
-            active_agent_trace.append(len(active_agents))
-
         assignments = self._rebuild_assignments_from_winners(env, global_z, global_y)
         return {
             "assignments": assignments,
@@ -507,12 +687,10 @@ class ImprovedCBBASolver:
             "winners": global_z,
             "winning_bids": global_y,
             "clusters": clusters,
-            "comm_cost": comm_cost,
-            "active_agent_trace": active_agent_trace,
         }
 
 
-class CBBAKMEnv:
+class CBBAEnv:
     """
     与你现有框架兼容的改进版 CBBA 环境。
     main 中把
@@ -567,13 +745,199 @@ class CBBAKMEnv:
         self.fitness_count = 0.0
         self.total_cbba_iters = 0
         self.total_replan_rounds = 0
-        self.total_comm_cost = 0
         self.round_history: List[dict] = []
+        self.event_logs: List[str] = []
         return self
 
     def _log(self, *args):
         if self.debug:
             print(*args)
+    def _emit_event_log(self, message: str):
+        self.event_logs.append(message)
+        print(message)
+
+    def _new_blank_instance(self, cls):
+        try:
+            return cls.__new__(cls)
+        except Exception:
+            class _Blank:
+                pass
+
+            return _Blank()
+
+    def _recompute_global_bounds(self):
+        self.max_total_voyage, self.max_total_time = calculate_max_possible_voyage_time(
+            self.uavs, self.targets
+        )
+        self.max_total_voyage = max(self.max_total_voyage, 1.0)
+        self.max_total_time = max(self.max_total_time, 1.0)
+
+    def _build_dynamic_target(
+        self,
+        target_prefix: str,
+        location: Tuple[float, float],
+        strike_ammunition: int = 3,
+        recon_time: float = 5.0,
+        assessment_time: float = 4.0,
+    ) -> Target:
+        base_prefix = target_prefix
+        suffix = 1
+        while (
+            f"{target_prefix}S" in self.task_dict
+            or f"{target_prefix}R" in self.task_dict
+            or f"{target_prefix}A" in self.task_dict
+        ):
+            target_prefix = f"{base_prefix}_{suffix}"
+            suffix += 1
+
+        target = self._new_blank_instance(Target)
+        target.id = target_prefix
+        target.location = location
+        target.total_time = 0.0
+        target.tasks = []
+
+        def make_task(task_id: str, task_type: int, ammunition: int, time_cost: float):
+            task = self._new_blank_instance(Task)
+            task.id = task_id
+            task.type = task_type
+            task.location = location
+            task.ammunition = ammunition
+            task.time = time_cost
+            task.flag = False
+            task.waiting_time = 0.0
+            task.end_time = 0.0
+            task.target = target
+            task.strike = 1.0 if task_type == 1 else 0.0
+            task.reconnaissance = 1.0 if task_type == 2 else 0.0
+            task.assessment = 1.0 if task_type == 3 else 0.0
+            return task
+
+        strike_task = make_task(f"{target_prefix}S", 1, strike_ammunition, 0.0)
+        recon_task = make_task(f"{target_prefix}R", 2, 0, recon_time)
+        assess_task = make_task(f"{target_prefix}A", 3, 0, assessment_time)
+        target.tasks = [strike_task, recon_task, assess_task]
+        return target
+
+    def add_dynamic_target(
+        self,
+        target_prefix: str = "TASKDYN01",
+        location: Tuple[float, float] = (38.4, 81.2),
+        strike_ammunition: int = 3,
+        recon_time: float = 5.0,
+        assessment_time: float = 4.0,
+    ) -> Target:
+        target = self._build_dynamic_target(
+            target_prefix=target_prefix,
+            location=location,
+            strike_ammunition=strike_ammunition,
+            recon_time=recon_time,
+            assessment_time=assessment_time,
+        )
+        self.targets.append(target)
+        self.tasks.extend(target.tasks)
+        for task in target.tasks:
+            self.task_dict[task.id] = task
+        self._recompute_global_bounds()
+        self._emit_event_log(
+            f"[动态事件-新增目标] 新增目标 {target.id}，位置={target.location}，新增任务={[task.id for task in target.tasks]}"
+        )
+        return target
+
+    def _select_crash_uav(self, crash_type: int = 2) -> Optional[Uav]:
+        candidates = [uav for uav in self.uavs if uav.alive and getattr(uav, "type", None) == crash_type]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda u: (u.idx, u.id))
+        return candidates[0]
+
+    def _collect_competition_snapshot(self, tasks: List[Task]) -> Dict[str, List[dict]]:
+        snapshot: Dict[str, List[dict]] = {}
+        for task in tasks:
+            candidates = []
+            for uav in self.uavs:
+                if not uav.alive:
+                    continue
+                if not self._static_feasible(uav, task):
+                    continue
+                gain, pos, delay = self.best_insertion_delay_first(uav, [], task.id)
+                if pos < 0 or gain <= EPS:
+                    continue
+                candidates.append(
+                    {
+                        "uav_idx": uav.idx,
+                        "uav_id": uav.id,
+                        "uav_type": uav.type,
+                        "gain": gain,
+                        "delay": delay,
+                        "insert_pos": pos,
+                    }
+                )
+            candidates.sort(key=lambda x: (-x["gain"], x["delay"], x["uav_idx"]))
+            snapshot[task.id] = candidates
+        return snapshot
+
+    def _winner_reason(self, winner_idx: Optional[int], winner_bid: float, candidates: List[dict]) -> str:
+        if winner_idx is None:
+            return "没有可行赢家，当前无 UAV 能满足类型/资源/航程约束。"
+        winner = next((c for c in candidates if c["uav_idx"] == winner_idx), None)
+        if winner is None:
+            return f"该 UAV 在一致性阶段保持全局最优 winning bid={winner_bid:.4f}。"
+        if len(candidates) == 1:
+            return "它是唯一满足任务类型、资源与航程约束的可行竞标者。"
+        runner_up = next((c for c in candidates if c["uav_idx"] != winner_idx), None)
+        if runner_up is None:
+            return "它是唯一有效竞标者。"
+        if winner["gain"] > runner_up["gain"] + EPS:
+            return (
+                f"它的边际收益最高（{winner['gain']:.4f}），高于次优 {runner_up['uav_id']} "
+                f"的 {runner_up['gain']:.4f}。"
+            )
+        if winner["delay"] < runner_up["delay"] - EPS:
+            return (
+                f"它与其他 UAV 收益接近，但插入延迟更小（{winner['delay']:.4f} < "
+                f"{runner_up['delay']:.4f}）。"
+            )
+        return (
+            f"它与其他 UAV 收益接近，按 CBBA 的 tie-break 规则由编号更小的 {winner['uav_id']} 获胜。"
+        )
+
+    def _print_competition_report(self, header: str, tasks: List[Task], snapshot: Dict[str, List[dict]], wave_result: dict):
+        self._emit_event_log(header)
+        for task in tasks:
+            candidates = snapshot.get(task.id, [])
+            self._emit_event_log(f"  任务 {task.id} (type={task.type}, location={task.location})")
+            if not candidates:
+                self._emit_event_log("    可行竞争 UAV: 无")
+            else:
+                for cand in candidates:
+                    self._emit_event_log(
+                        "    候选 -> "
+                        f"{cand['uav_id']} (type={cand['uav_type']}), "
+                        f"gain={cand['gain']:.4f}, delay={cand['delay']:.4f}, pos={cand['insert_pos']}"
+                    )
+            winner_idx = wave_result["winners"].get(task.id)
+            winner_bid = wave_result["winning_bids"].get(task.id, NEG_INF)
+            if winner_idx is None:
+                self._emit_event_log("    最终赢家: 无")
+                self._emit_event_log("    原因: 没有 UAV 成功获得该任务。")
+            else:
+                winner_uav = self.uavs[winner_idx]
+                reason = self._winner_reason(winner_idx, winner_bid, candidates)
+                self._emit_event_log(
+                    f"    最终赢家: {winner_uav.id} (type={winner_uav.type}), winning_bid={winner_bid:.4f}"
+                )
+                self._emit_event_log(f"    原因: {reason}")
+
+    def _merge_assignments(self, base_assignments: Dict[int, List[Task]], extra_assignments: Dict[int, List[Task]]) -> Dict[int, List[Task]]:
+        merged: Dict[int, List[Task]] = {idx: list(tasks) for idx, tasks in base_assignments.items()}
+        for uav_idx, task_list in extra_assignments.items():
+            merged.setdefault(uav_idx, [])
+            existing_ids = {task.id for task in merged[uav_idx]}
+            for task in task_list:
+                if task.id not in existing_ids:
+                    merged[uav_idx].append(task)
+                    existing_ids.add(task.id)
+        return merged
 
     @staticmethod
     def euclidean_pos(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
@@ -883,6 +1247,30 @@ class CBBAKMEnv:
             "round_fitness": round_fitness,
         }
 
+    def _finalize_episode_result(self) -> dict:
+        tasks_num = len(self.tasks)
+        total_distance = calculate_all_voyage_distance(self.uavs)
+        total_time = calculate_all_voyage_time(self.targets)
+        unassigned_tasks = [task.id for task in self.tasks if not task.flag]
+
+        return {
+            "tasks_num": tasks_num,
+            "success_count": self.success_count,
+            "fitness_count": self.fitness_count,
+            "episode_reward": self.episode_reward,
+            "success_rate": self.success_count / tasks_num if tasks_num else 0.0,
+            "fitness_rate": 0 / tasks_num if tasks_num else 0.0,
+            "total_reward": self.episode_reward / tasks_num if tasks_num else 0.0,
+            "total_distance": total_distance,
+            "total_time": total_time,
+            "unassigned_tasks": unassigned_tasks,
+            "done": len(unassigned_tasks) == 0,
+            "replan_rounds": self.total_replan_rounds,
+            "total_cbba_iters": self.total_cbba_iters,
+            "round_history": self.round_history,
+            "event_logs": self.event_logs,
+        }
+
     def run_episode(self) -> dict:
         self.reset()
         while True:
@@ -893,7 +1281,6 @@ class CBBAKMEnv:
             wave_result = self.solver.solve_current_wave(self, available_tasks)
             self.total_cbba_iters += wave_result["iterations"]
             self.total_replan_rounds += 1
-            self.total_comm_cost += wave_result["comm_cost"]
 
             execute_result = self.execute_assignments(wave_result["assignments"])
             self.round_history.append(
@@ -918,34 +1305,118 @@ class CBBAKMEnv:
             if all(task.flag for task in self.tasks):
                 break
 
-        tasks_num = len(self.tasks)
-        total_distance = calculate_all_voyage_distance(self.uavs)
-        total_time = calculate_all_voyage_time(self.targets)
-        unassigned_tasks = [task.id for task in self.tasks if not task.flag]
+        return self._finalize_episode_result()
 
-        return {
-            "tasks_num": tasks_num,
-            "success_count": self.success_count,
-            "fitness_count": self.fitness_count,
-            "episode_reward": self.episode_reward,
-            "success_rate": self.success_count / tasks_num if tasks_num else 0.0,
-            "fitness_rate": 0 / tasks_num if tasks_num else 0.0,
-            "total_reward": self.episode_reward / tasks_num if tasks_num else 0.0,
-            "total_distance": total_distance,
-            "total_time": total_time,
-            "unassigned_tasks": unassigned_tasks,
-            "done": len(unassigned_tasks) == 0,
-            "replan_rounds": self.total_replan_rounds,
-            "total_cbba_iters": self.total_cbba_iters,
-            "round_history": self.round_history,
-            "comm_cost": self.total_comm_cost,
-        }
+    def run_episode_with_dynamic_events(
+        self,
+        target_add_round: int = 2,
+        crash_round: int = 3,
+        target_prefix: str = "TASKDYN01",
+        target_location: Tuple[float, float] = (38.4, 81.2),
+        strike_ammunition: int = 3,
+        recon_time: float = 5.0,
+        assessment_time: float = 4.0,
+        crash_type: int = 2,
+    ) -> dict:
+        self.reset()
+        target_added = False
+        crash_done = False
+        dynamic_task_ids: Set[str] = set()
+        reported_dynamic_tasks: Set[str] = set()
+
+        while True:
+            next_round = self.total_replan_rounds + 1
+            if (not target_added) and target_add_round is not None and next_round == target_add_round:
+                target = self.add_dynamic_target(
+                    target_prefix=target_prefix,
+                    location=target_location,
+                    strike_ammunition=strike_ammunition,
+                    recon_time=recon_time,
+                    assessment_time=assessment_time,
+                )
+                dynamic_task_ids = {task.id for task in target.tasks}
+                target_added = True
+
+            available_tasks = self._available_tasks()
+            if not available_tasks:
+                break
+
+            newly_released_dynamic_tasks = [
+                task
+                for task in available_tasks
+                if task.id in dynamic_task_ids and task.id not in reported_dynamic_tasks
+            ]
+            dynamic_snapshot = self._collect_competition_snapshot(newly_released_dynamic_tasks)
+
+            wave_result = self.solver.solve_current_wave(self, available_tasks)
+            self.total_cbba_iters += wave_result["iterations"]
+            self.total_replan_rounds += 1
+
+            if newly_released_dynamic_tasks:
+                self._print_competition_report(
+                    header=f"[动态事件-新增目标] 第 {self.total_replan_rounds} 轮中新增任务竞争情况",
+                    tasks=newly_released_dynamic_tasks,
+                    snapshot=dynamic_snapshot,
+                    wave_result=wave_result,
+                )
+                reported_dynamic_tasks.update(task.id for task in newly_released_dynamic_tasks)
+
+            assignments = {idx: list(tasks) for idx, tasks in wave_result["assignments"].items()}
+
+            if (not crash_done) and crash_round is not None and self.total_replan_rounds == crash_round:
+                crash_uav = self._select_crash_uav(crash_type=crash_type)
+                if crash_uav is not None:
+                    released_tasks = list(assignments.pop(crash_uav.idx, []))
+                    crash_uav.alive = False
+                    self._emit_event_log(
+                        f"[动态事件-UAV坠毁] 第 {self.total_replan_rounds} 轮触发，坠毁 UAV={crash_uav.id} (type={crash_uav.type})"
+                    )
+                    self._emit_event_log(
+                        f"  该 UAV 剩余未完成任务: {[task.id for task in released_tasks] if released_tasks else '无'}"
+                    )
+                    if released_tasks:
+                        crash_snapshot = self._collect_competition_snapshot(released_tasks)
+                        recovery_result = self.solver.solve_current_wave(self, released_tasks)
+                        self.total_cbba_iters += recovery_result["iterations"]
+                        self._print_competition_report(
+                            header="[动态事件-UAV坠毁] 释放任务的二次竞争与重分配结果",
+                            tasks=released_tasks,
+                            snapshot=crash_snapshot,
+                            wave_result=recovery_result,
+                        )
+                        assignments = self._merge_assignments(assignments, recovery_result["assignments"])
+                crash_done = True
+
+            execute_result = self.execute_assignments(assignments)
+            self.round_history.append(
+                {
+                    "round": self.total_replan_rounds,
+                    "available_tasks": [task.id for task in available_tasks],
+                    "iterations": wave_result["iterations"],
+                    "winners": {
+                        task_id: (None if uav_idx is None else self.uavs[uav_idx].id)
+                        for task_id, uav_idx in wave_result["winners"].items()
+                    },
+                    "executed": execute_result["executed"],
+                }
+            )
+
+            if execute_result["round_success"] == 0:
+                break
+            if all(task.flag for task in self.tasks):
+                break
+
+        result = self._finalize_episode_result()
+        self._emit_event_log(
+            f"[动态实验结束] 任务完成率={result['success_rate']:.4f} ({result['success_count']}/{result['tasks_num']})"
+        )
+        return result
 
 
 def format_episode_metrics(ep: int, result: dict) -> str:
     return (
-        f"Ep {ep} | Avg Reward: {result['total_reward']:.3f} | "
-        f"Success: {result['success_rate']:.2f} | "
+        f"Ep {ep} | Success: {result['success_rate']:.2f} "
+        f"({result['success_count']}/{result['tasks_num']}) | "
         f"distance: {result['total_distance']:.2f}, "
         f"time: {result['total_time']:.2f} | "
         f"rounds: {result['replan_rounds']}, cbba_iters: {result['total_cbba_iters']}"

@@ -57,6 +57,7 @@ class Uav:
         self.alive = True  # 重置时复活
         self.tasks = []  # 清空已分配任务列表
 
+
 class Task:
     """
     任务拥有的属性：
@@ -112,36 +113,6 @@ class Target:
         self.tasks = tasks
         self.total_time = 0.0
         self.location = (round(location[0], 2), round(location[1], 2))
-
-
-# === 新增：用于动态生成随机任务的辅助函数 ===
-def create_random_target(id_str: str, map_size: float = 100.0) -> "Target":
-    """
-    随机生成一个新的目标，包含3个任务（侦察、打击、评估）
-    """
-    # 随机位置
-    loc_x = np.random.uniform(0, map_size)
-    loc_y = np.random.uniform(0, map_size)
-    location = (loc_x, loc_y)
-
-    tasks = []
-    types = [2, 1, 3]  # 侦察, 打击, 评估
-    for i, t_type in enumerate(types):
-        task = Task(
-            id=f"{id_str}_t{i}",
-            type=t_type,
-            location=location,  # 任务位置同目标位置
-            ammunition=np.random.uniform(0, 1) if t_type == 1 else 0,
-            time=np.random.uniform(0, 1) if t_type in [2, 3] else 0,
-        )
-        tasks.append(task)
-
-    target = Target(id=id_str, tasks=tasks, location=location)
-    # 绑定 target
-    for t in tasks:
-        t.target = target
-
-    return target
 
 
 def parse_location(loc_str: str) -> Tuple[float, float]:

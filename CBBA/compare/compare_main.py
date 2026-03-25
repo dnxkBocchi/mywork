@@ -11,11 +11,12 @@ from task_allocation import CBBAEnv, format_episode_metrics
 from cbba_basic import CBBASolver
 from auction_algorithm import AuctionSolver
 from contractnet_algorithm import ContractNetSolver
-from cbba_kmeans import CBBAKMEnv, ImprovedCBBASolver
+from cbba_kmeans_only import CBBAKMEnv, ImprovedCBBASolver, format_episode_metrics2
 from calculate import log_all_voyage_time
+from plt.plot_path import plot_overall_result, plot_task_type_subfigures
 
 
-ALGORITHMS = ("auction", "contractnet", "cbba", "cbba_kmeans", "all")
+ALGORITHMS = ("auction", "contractnet", "cbba_kmeans", "all")
 
 
 def parse_args():
@@ -82,12 +83,6 @@ def print_metrics(env):
 
 
 def build_solver(args, name: str):
-    if name == "cbba":
-        return CBBASolver(
-            max_bundle_size=args.max_bundle_size,
-            max_consensus_rounds=args.max_consensus_rounds,
-            debug=False,
-        )
     if name == "auction":
         return AuctionSolver(debug=False)
     if name == "contractnet":
@@ -139,6 +134,21 @@ def run_once(ep: int, args, algo_name: str):
     if args.print_detail:
         print_round_history(result["round_history"])
 
+    if algo_name == "cbba_kmeans":
+        print(format_episode_metrics2(ep, result))
+    #     args.save_dir = "outputs"
+    #     os.makedirs(args.save_dir, exist_ok=True)
+
+    #     overall_path = os.path.join(args.save_dir, f"cbba_km_allocation.pdf")
+    #     by_type_path = os.path.join(args.save_dir, f"cbba_km_uav_path.pdf")
+
+    #     plot_overall_result(env, result, overall_path)
+    #     plot_task_type_subfigures(env, result, by_type_path)
+
+    #     print("\nSaved figures:")
+    #     print(overall_path)
+    #     print(by_type_path)
+
     return result
 
 
@@ -167,7 +177,7 @@ def main():
     algo_list = (
         [args.algorithm]
         if args.algorithm != "all"
-        else ["auction", "contractnet", "cbba", "cbba_kmeans"]
+        else ["auction", "contractnet", "cbba_kmeans"]
     )
 
     print("=" * 40)

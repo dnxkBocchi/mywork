@@ -408,6 +408,170 @@ def plot_uavs_and_routes(
             )
 
 
+def build_route_from_uav_tasks(env):
+    """
+    直接根据 env.uavs 中每架 UAV 的 tasks 属性重建真实执行顺序。
+    注意：应在 env.run_episode() 之后调用，此时 uav.tasks 已按真实执行顺序逐步 append。
+    route_by_uav[uav_id] = [task_id1, task_id2, ...]
+    """
+    route_by_uav = {}
+    for uav in env.uavs:
+        route_by_uav[uav.id] = list(getattr(uav, "tasks", []))
+    return route_by_uav
+
+
+def plot_tasks_by_ids(ax, task_by_id, task_ids, placed_bboxes, renderer):
+    """
+    仅绘制给定 task_ids 对应的任务点，仍按任务类型区分 marker / 颜色。
+    """
+    used_labels = set()
+    seen = set()
+
+    for task_id in task_ids:
+        if task_id in seen or task_id not in task_by_id:
+            continue
+        seen.add(task_id)
+
+        task = task_by_id[task_id]
+        x, y = task.location
+        label = TASK_TYPE_NAME[task.type]
+        if label in used_labels:
+            label = None
+        else:
+            used_labels.add(label)
+
+        ax.scatter(
+            x,
+            y,
+            s=90,
+            marker=TASK_TYPE_MARKER[task.type],
+            c=TASK_TYPE_COLOR[task.type],
+            edgecolors="black",
+            linewidths=0.8,
+            alpha=0.9,
+            zorder=3,
+            label=label,
+        )
+
+        add_nonoverlap_text(
+            ax,
+            x,
+            y,
+            task.id,
+            placed_bboxes,
+            renderer,
+            color="black",
+            fontsize=8,
+            zorder=4,
+        )
+
+
+def plot_uavs_and_routes_by_type(
+    ax,
+    initial_uavs,
+    current_uavs,
+    task_by_id,
+    placed_bboxes,
+    renderer,
+    only_uav_type,
+):
+    """
+    按无人机类型绘制：
+    - 起点使用 initial_uavs 中的初始位置
+    - 路径顺序使用 current_uavs 中 uav.tasks 的真实执行顺序
+    """
+    init_uav_by_id = {uav.id: uav for uav in initial_uavs}
+    used_type_label = False
+
+    for uav in current_uavs:
+        if uav.type != only_uav_type:
+            continue
+
+        init_uav = init_uav_by_id.get(uav.id, uav)
+        ux, uy = init_uav.location
+        route_task_ids = [
+            task_id for task_id in getattr(uav, "tasks", []) if task_id in task_by_id
+        ]
+
+        ax.scatter(
+            ux,
+            uy,
+            s=180,
+            marker="P",
+            c=UAV_TYPE_COLOR.get(uav.type, "black"),
+            edgecolors="black",
+            linewidths=1.0,
+            zorder=6,
+            label=(
+                UAV_TYPE_NAME.get(uav.type, f"Type {uav.type}")
+                if not used_type_label
+                else None
+            ),
+        )
+        used_type_label = True
+
+        add_nonoverlap_text(
+            ax,
+            ux,
+            uy,
+            uav.id,
+            placed_bboxes,
+            renderer,
+            color=UAV_TYPE_COLOR.get(uav.type, "black"),
+            fontsize=9,
+            fontweight="bold",
+            zorder=7,
+        )
+
+        if not route_task_ids:
+            continue
+
+        points = [init_uav.location] + [
+            task_by_id[tid].location for tid in route_task_ids
+        ]
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+
+        ax.plot(
+            xs,
+            ys,
+            color=UAV_TYPE_COLOR.get(uav.type, "black"),
+            linewidth=2.2,
+            alpha=0.95,
+            zorder=2,
+        )
+
+        for i in range(len(points) - 1):
+            x1, y1 = points[i]
+            x2, y2 = points[i + 1]
+            ax.annotate(
+                "",
+                xy=(x2, y2),
+                xytext=(x1, y1),
+                arrowprops=dict(
+                    arrowstyle="->",
+                    color=UAV_TYPE_COLOR.get(uav.type, "black"),
+                    lw=1.8,
+                    alpha=0.9,
+                ),
+                zorder=2,
+            )
+
+        for step, task_id in enumerate(route_task_ids, start=1):
+            tx, ty = task_by_id[task_id].location
+            add_nonoverlap_text(
+                ax,
+                tx,
+                ty,
+                f"{uav.id}:{step}",
+                placed_bboxes,
+                renderer,
+                color=UAV_TYPE_COLOR.get(uav.type, "black"),
+                fontsize=8,
+                zorder=7,
+            )
+
+
 def dedup_legend(ax):
     handles, labels = ax.get_legend_handles_labels()
     uniq = {}
@@ -446,39 +610,61 @@ def plot_overall_result(env, result, save_path, dpi=200):
 
 
 def plot_task_type_subfigures(env, result, save_path, dpi=200):
+    """
+    兼容原函数名，但语义改为：
+    按无人机类型分别画 3 个子图，而不是按任务类型画。
+    1) 侦查评估型无人机
+    2) 打击型无人机
+    3) 侦查打击一体 / 通用型无人机
+
+    路径顺序直接使用 env.uavs 中的 uav.tasks，
+    因为该属性在真实执行时会按完成顺序逐次追加。
+    """
     initial_uavs = env.init_uavs
+    current_uavs = env.uavs
     targets = env.init_targets
     tasks = env.tasks
     task_by_id = {task.id: task for task in tasks}
-    route_by_uav = build_route_from_history(result)
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.6))
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.8))
 
-    for idx, task_type in enumerate([2, 1, 3]):
+    subplot_uav_types = [2, 1, 3]
+    subplot_titles = {
+        2: "Recon/Assess UAVs",
+        1: "Strike UAVs",
+        3: "General UAVs",
+    }
+
+    for idx, uav_type in enumerate(subplot_uav_types):
         ax = axes[idx]
-        title = {
-            2: "Recon Tasks",
-            1: "Strike Tasks",
-            3: "Assess Tasks",
-        }[task_type]
+        setup_axis(ax, initial_uavs, targets, tasks, subplot_titles[uav_type])
 
-        setup_axis(ax, initial_uavs, targets, tasks, title)
-
-        # 每个子图各 draw 一次，拿自己的 renderer
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
-
         placed_bboxes = []
-        # plot_targets(ax, targets, placed_bboxes, renderer)
-        plot_tasks(ax, tasks, placed_bboxes, renderer, only_task_type=task_type)
-        plot_uavs_and_routes(
+
+        # 只画该类型无人机真实执行过的任务点
+        task_ids_this_type = []
+        for uav in current_uavs:
+            if uav.type == uav_type:
+                task_ids_this_type.extend(list(getattr(uav, "tasks", [])))
+
+        plot_tasks_by_ids(
             ax,
-            initial_uavs,
             task_by_id,
-            route_by_uav,
+            task_ids_this_type,
             placed_bboxes,
             renderer,
-            only_task_type=task_type,
+        )
+
+        plot_uavs_and_routes_by_type(
+            ax,
+            initial_uavs,
+            current_uavs,
+            task_by_id,
+            placed_bboxes,
+            renderer,
+            only_uav_type=uav_type,
         )
 
         dedup_legend(ax)
