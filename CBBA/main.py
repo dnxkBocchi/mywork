@@ -6,38 +6,17 @@ from calculate import log_all_voyage_time
 from plt.plot_path import plot_overall_result, plot_task_type_subfigures
 
 # from cbba_pro import CBBAEnv, format_episode_metrics
+
 from cbba_pro_dynamic import CBBAEnv, format_episode_metrics
+from plt.plot_dynamic import plot_dynamic_response_timeline
 
 # todo:
-# 3.加新增目标和坠毁的无人机处理
 # 5.再找一个指标能表明分布式算法的痛点,并且我的最好
-# 7.把10*10的数据放到论文里
+# 通信开销：总广播次数、总通信轮次、每轮平均通信次数
 # 相关研究扯上负载均衡
 # 匹配度改名
 
-# my
-# UAVS1: tasks=['TASK06S', 'TASK08S']
-# UAVS2: tasks=['TASK01S']
-# UAVRA1: tasks=['TASK19R', 'TASK13R', 'TASK29A', 'TASK27A']
-# UAVRA2: tasks=['TASK15R', 'TASK12R', 'TASK22A']
-# UAVG1: tasks=['TASK17R', 'TASK07S', 'TASK09S', 'TASK03S', 'TASK23A']
-# UAVS3: tasks=['TASK10S', 'TASK04S']
-# UAVRA3: tasks=['TASK11R', 'TASK21A']
-# UAVRA4: tasks=['TASK16R', 'TASK18R', 'TASK28A', 'TASK26A']
-# UAVRA5: tasks=['TASK20R', 'TASK14R', 'TASK24A', 'TASK30A']
-# UAVG2: tasks=['TASK05S', 'TASK02S', 'TASK25A']
 
-
-# UAVS1: tasks=['TASK06S', 'TASK08S']
-# UAVS2: tasks=['TASK01S']
-# UAVRA1: tasks=['TASK19R', 'TASK13R', 'TASK23A']
-# UAVRA2: tasks=['TASK15R', 'TASK12R', 'TASK22A']
-# UAVG1: tasks=['TASK17R', 'TASK07S', 'TASK09S', 'TASK03S', 'TASK29A', 'TASK27A']
-# UAVS3: tasks=['TASK10S', 'TASK04S']
-# UAVRA3: tasks=['TASK11R', 'TASK21A']
-# UAVRA4: tasks=['TASK16R', 'TASK18R', 'TASK28A', 'TASK26A']
-# UAVRA5: tasks=['TASK20R', 'TASK14R', 'TASK24A', 'TASK30A']
-# UAVG2: tasks=['TASK05S', 'TASK02S', 'TASK25A']
 def parse_args():
     parser = argparse.ArgumentParser(description="Run standard CBBA on local csv data.")
     parser.add_argument("--uav_csv", type=str, default="data/test/uav.csv")
@@ -47,7 +26,7 @@ def parse_args():
     parser.add_argument("--print_detail", type=bool, default=False)
     parser.add_argument("--save_dir", type=str, default="outputs")
     parser.add_argument("--dpi", type=int, default=200)
-    parser.add_argument("--plot", type=bool, default=True)
+    parser.add_argument("--plot", type=bool, default=False)
     parser.add_argument(
         "--max_consensus_rounds",
         type=int,
@@ -122,9 +101,12 @@ def run_once(ep: int, args):
         crash_type=2,  # 坠毁 type=2 的无人机
     )
     print(format_episode_metrics(1, result))
+    plot_dynamic_response_timeline(
+        result, save_path="outputs/dynamic_response_timeline.pdf", dpi=300
+    )
 
     # print(format_episode_metrics(ep, result))
-    print_metrics(env)
+    # print_metrics(env)
     # log_all_voyage_time(env.uavs, env.targets)
 
     if result["unassigned_tasks"]:

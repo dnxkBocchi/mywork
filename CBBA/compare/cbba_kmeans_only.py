@@ -26,10 +26,9 @@ class ImprovedCBBASolver:
     仅保留一个创新点的 CBBA：
     基于 k-means++ 的聚类分层一致性。
 
-    其余部分均复用 task_allocation.CBBAEnv 中的常规环境逻辑：
-    1. 路径收益评估
-    2. 最优插入位置计算
-    3. 任务释放与真实执行
+    这里新增通信半径约束：
+    - 通信量统计时，仅统计距离 <= comm_radius 的有向消息；
+    - 分层一致性求解逻辑保持与原版一致，避免因为“只改通信模型”而大幅改变分配结果。
     """
 
     def __init__(
@@ -38,12 +37,14 @@ class ImprovedCBBASolver:
         max_consensus_rounds: int = 50,
         cluster_count: Optional[int] = None,
         kmeans_iters: int = 8,
+        comm_radius: float = 40.0,
         debug: bool = False,
     ):
         self.max_bundle_size = max_bundle_size
         self.max_consensus_rounds = max_consensus_rounds
         self.cluster_count = cluster_count
         self.kmeans_iters = kmeans_iters
+        self.comm_radius = comm_radius
         self.debug = debug
 
     def _log(self, *args):
@@ -188,6 +189,41 @@ class ImprovedCBBASolver:
 
         return compact_clusters, compact_membership, leaders
 
+    def _can_communicate(self, env, idx_i: int, idx_j: int) -> bool:
+        if idx_i == idx_j:
+            return False
+        uav_i = env.uavs[idx_i]
+        uav_j = env.uavs[idx_j]
+        return (
+            getattr(uav_i, "alive", True)
+            and getattr(uav_j, "alive", True)
+            and env.euclidean_pos(uav_i.location, uav_j.location)
+            <= self.comm_radius + EPS
+        )
+
+    def _cluster_comm_messages(
+        self, env, clusters: List[List[int]], leaders: List[int]
+    ) -> Tuple[int, int]:
+        """
+        统计当前一轮分层一致性消息量：
+        1) 簇内：仅统计同簇内距离 <= comm_radius 的有向消息 i -> j
+        2) 簇间：仅统计 leader 之间距离 <= comm_radius 的有向消息 i -> j
+        """
+        intra_cluster_msgs = 0
+        for cluster in clusters:
+            for idx_i in cluster:
+                for idx_j in cluster:
+                    if self._can_communicate(env, idx_i, idx_j):
+                        intra_cluster_msgs += 1
+
+        inter_cluster_msgs = 0
+        for leader_i in leaders:
+            for leader_j in leaders:
+                if self._can_communicate(env, leader_i, leader_j):
+                    inter_cluster_msgs += 1
+
+        return intra_cluster_msgs, inter_cluster_msgs
+
     def _bundle_construction(
         self,
         env,
@@ -269,6 +305,8 @@ class ImprovedCBBASolver:
         分两层做一致性：
         1. 簇内先由成员竞争产生局部赢家
         2. 各簇局部赢家再参与簇间全局一致性
+
+        注意：这里保留原始决策逻辑，仅把通信半径约束用于消息量统计。
         """
         task_ids = [task.id for task in available_tasks]
         cluster_claims: List[Tuple[Dict[str, float], Dict[str, Optional[int]]]] = []
@@ -372,7 +410,10 @@ class ImprovedCBBASolver:
                 "winners": {},
                 "winning_bids": {},
                 "clusters": [],
+                "leaders": [],
                 "comm_messages": 0,
+                "intra_cluster_msgs": 0,
+                "inter_cluster_msgs": 0,
             }
 
         clusters, _, leaders = self._kmeans_pp_clusters(env)
@@ -383,22 +424,27 @@ class ImprovedCBBASolver:
                 "winners": {},
                 "winning_bids": {},
                 "clusters": [],
+                "leaders": [],
                 "comm_messages": 0,
+                "intra_cluster_msgs": 0,
+                "inter_cluster_msgs": 0,
             }
 
         self._log(
             "[CBBA] clusters:", [[env.uavs[idx].id for idx in c] for c in clusters]
         )
         self._log("[CBBA] leaders:", [env.uavs[idx].id for idx in leaders])
+        self._log("[CBBA] comm_radius:", self.comm_radius)
 
         agent_states = self._init_agent_states(env, available_tasks)
         task_ids = [task.id for task in available_tasks]
         global_y = {task_id: NEG_INF for task_id in task_ids}
         global_z = {task_id: None for task_id in task_ids}
 
-        alive_agent_count = sum(1 for uav in env.uavs if getattr(uav, "alive", True))
         iterations = 0
         comm_messages = 0
+        total_intra_cluster_msgs = 0
+        total_inter_cluster_msgs = 0
 
         while iterations < self.max_consensus_rounds:
             iterations += 1
@@ -431,13 +477,13 @@ class ImprovedCBBASolver:
             }
             any_change = any_change or bool(pruned_agents) or bool(changed_tasks)
 
-            # 聚类分层一致性的通信估计：
-            # 1) 簇内：每个簇按有向全连接交换局部 winner/bid，记为 n_c * (n_c - 1)
-            # 2) 簇间：各簇 leader 按有向全连接交换，记为 K * (K - 1)
-            intra_cluster_msgs = sum(
-                len(cluster) * (len(cluster) - 1) for cluster in clusters
+            # 与原版保持一致：每轮分层一致性都累计一次通信量；
+            # 唯一变化是：只统计距离 <= comm_radius 的可达消息。
+            intra_cluster_msgs, inter_cluster_msgs = self._cluster_comm_messages(
+                env, clusters, leaders
             )
-            inter_cluster_msgs = len(clusters) * (len(clusters) - 1)
+            total_intra_cluster_msgs += intra_cluster_msgs
+            total_inter_cluster_msgs += inter_cluster_msgs
             comm_messages += intra_cluster_msgs + inter_cluster_msgs
 
             if not any_change:
@@ -451,7 +497,10 @@ class ImprovedCBBASolver:
             "winners": global_z,
             "winning_bids": global_y,
             "clusters": clusters,
+            "leaders": leaders,
             "comm_messages": comm_messages,
+            "intra_cluster_msgs": total_intra_cluster_msgs,
+            "inter_cluster_msgs": total_inter_cluster_msgs,
         }
 
 
@@ -460,7 +509,7 @@ class CBBAEnv(BaseCBBAEnv):
     复用 task_allocation.CBBAEnv 的环境逻辑，仅将求解器替换为 KMeans 分层一致性版本。
 
     兼容用法：
-        from cbba_kmeans_only import CBBAEnv, format_episode_metrics
+        from cbba_kmeans_only_radius40 import CBBAEnv, format_episode_metrics
     """
 
     def __init__(
@@ -473,6 +522,7 @@ class CBBAEnv(BaseCBBAEnv):
         max_consensus_rounds: int = 50,
         cluster_count: Optional[int] = None,
         kmeans_iters: int = 8,
+        comm_radius: float = 40.0,
         debug: bool = False,
     ):
         super().__init__(
@@ -489,12 +539,16 @@ class CBBAEnv(BaseCBBAEnv):
             max_consensus_rounds=max_consensus_rounds,
             cluster_count=cluster_count,
             kmeans_iters=kmeans_iters,
+            comm_radius=comm_radius,
             debug=debug,
         )
+        self.comm_radius = comm_radius
 
     def reset(self):
         super().reset()
         self.total_comm_messages = 0
+        self.total_intra_cluster_msgs = 0
+        self.total_inter_cluster_msgs = 0
         return self
 
     @staticmethod
@@ -526,6 +580,8 @@ class CBBAEnv(BaseCBBAEnv):
             self.total_cbba_iters += wave_result["iterations"]
             self.total_replan_rounds += 1
             self.total_comm_messages += wave_result.get("comm_messages", 0)
+            self.total_intra_cluster_msgs += wave_result.get("intra_cluster_msgs", 0)
+            self.total_inter_cluster_msgs += wave_result.get("inter_cluster_msgs", 0)
 
             execute_result = self.execute_assignments(wave_result["assignments"])
             self.round_history.append(
@@ -534,9 +590,14 @@ class CBBAEnv(BaseCBBAEnv):
                     "available_tasks": [task.id for task in available_tasks],
                     "iterations": wave_result["iterations"],
                     "comm_messages": wave_result.get("comm_messages", 0),
+                    "intra_cluster_msgs": wave_result.get("intra_cluster_msgs", 0),
+                    "inter_cluster_msgs": wave_result.get("inter_cluster_msgs", 0),
                     "clusters": [
                         [self.uavs[idx].id for idx in cluster]
                         for cluster in wave_result.get("clusters", [])
+                    ],
+                    "leaders": [
+                        self.uavs[idx].id for idx in wave_result.get("leaders", [])
                     ],
                     "winners": {
                         task_id: (None if uav_idx is None else self.uavs[uav_idx].id)
@@ -571,7 +632,10 @@ class CBBAEnv(BaseCBBAEnv):
             "replan_rounds": self.total_replan_rounds,
             "total_cbba_iters": self.total_cbba_iters,
             "round_history": self.round_history,
-            "total_comm_messages": self.total_comm_messages,
+            "comm_messages": self.total_comm_messages,
+            "intra_cluster_msgs": self.total_intra_cluster_msgs,
+            "inter_cluster_msgs": self.total_inter_cluster_msgs,
+            "comm_radius": self.comm_radius,
         }
 
 
@@ -586,5 +650,8 @@ def format_episode_metrics2(ep: int, result: dict) -> str:
         f"distance: {result['total_distance']:.2f}, "
         f"time: {result['total_time']:.2f} | "
         f"cbba_iters: {result['total_cbba_iters']} | "
-        f"comm_msgs: {result.get('total_comm_messages', 0)}"
+        f"comm_msgs: {result.get('comm_messages', 0)} | "
+        f"intra: {result.get('intra_cluster_msgs', 0)}, "
+        f"inter: {result.get('inter_cluster_msgs', 0)} | "
+        f"radius: {result.get('comm_radius', 40.0)}"
     )

@@ -1,4 +1,5 @@
 import copy
+import math
 from typing import Dict, List, Optional, Tuple
 
 from calculate import (
@@ -49,6 +50,10 @@ class CBBAEnv:
             debug=debug,
         )
         self.reset()
+
+    @staticmethod
+    def euclidean_pos(p1: Tuple[float, float], p2: Tuple[float, float]) -> float:
+        return math.hypot(p1[0] - p2[0], p1[1] - p2[1])
 
     def reset(self):
         self.uavs: List[Uav] = copy.deepcopy(self.init_uavs)
@@ -247,6 +252,7 @@ class CBBAEnv:
 
     def run_episode(self) -> dict:
         self.reset()
+        toal_comm_messages = 0
         while True:
             available_tasks = self._available_tasks()
             if not available_tasks:
@@ -255,6 +261,7 @@ class CBBAEnv:
             wave_result = self.solver.solve_current_wave(self, available_tasks)
             self.total_cbba_iters += wave_result["iterations"]
             self.total_replan_rounds += 1
+            toal_comm_messages += wave_result["comm_messages"]
 
             execute_result = self.execute_assignments(wave_result["assignments"])
             self.round_history.append(
@@ -296,6 +303,7 @@ class CBBAEnv:
             "replan_rounds": self.total_replan_rounds,
             "total_cbba_iters": self.total_cbba_iters,
             "round_history": self.round_history,
+            "comm_messages": toal_comm_messages,
         }
 
 
@@ -305,5 +313,6 @@ def format_episode_metrics(ep: int, result: dict) -> str:
         f"Success: {result['success_rate']:.2f} | "
         f"distance: {result['total_distance']:.2f}, "
         f"time: {result['total_time']:.2f} | "
+        f"common messages: {result.get('comm_messages', 'N/A')} | "
         f"rounds: {result['replan_rounds']}, cbba_iters: {result['total_cbba_iters']}"
     )

@@ -16,7 +16,7 @@ methods = ["AUCTION", "CONTRACTNET", "CCBA_KMEANS", "CCBA_MY"]
 # 数据
 distance = [265.95, 286.18, 253.64, 253.64]
 time = [208.82, 201.97, 218.20, 196.46]
-messages = [120, 110, 90, 74]
+messages = [578, 306, 688, 233]
 success_rate = [1.0, 1.0, 1.0, 1.0]
 
 # 成功率转百分比

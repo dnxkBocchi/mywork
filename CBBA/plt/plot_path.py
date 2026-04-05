@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 import matplotlib.transforms as mtransforms
 from matplotlib.text import Text
+import os
 
 UAV_TYPE_NAME = {
     1: "Strike UAV",
@@ -611,14 +612,22 @@ def plot_overall_result(env, result, save_path, dpi=200):
 
 def plot_task_type_subfigures(env, result, save_path, dpi=200):
     """
-    兼容原函数名，但语义改为：
-    按无人机类型分别画 3 个子图，而不是按任务类型画。
+    按无人机类型分别生成并保存 3 张独立图片：
     1) 侦查评估型无人机
     2) 打击型无人机
-    3) 侦查打击一体 / 通用型无人机
+    3) 通用型无人机
 
-    路径顺序直接使用 env.uavs 中的 uav.tasks，
-    因为该属性在真实执行时会按完成顺序逐次追加。
+    参数:
+        env: 环境对象
+        result: 兼容保留，当前函数中未使用
+        save_path:
+            - 如果是目录，则在该目录下保存 3 张图
+            - 如果是文件路径，则自动取其目录和文件名前缀，生成 3 张图
+              例如: /xx/yy/uav_path.png
+              会保存为:
+              /xx/yy/uav_path_recon_assess.png
+              /xx/yy/uav_path_strike.png
+              /xx/yy/uav_path_general.png
     """
     initial_uavs = env.init_uavs
     current_uavs = env.uavs
@@ -626,29 +635,53 @@ def plot_task_type_subfigures(env, result, save_path, dpi=200):
     tasks = env.tasks
     task_by_id = {task.id: task for task in tasks}
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 5.8))
-
+    # 三类无人机
     subplot_uav_types = [2, 1, 3]
     subplot_titles = {
         2: "Recon/Assess UAVs",
         1: "Strike UAVs",
         3: "General UAVs",
     }
+    type_suffix = {
+        2: "recon_assess",
+        1: "strike",
+        3: "general",
+    }
 
-    for idx, uav_type in enumerate(subplot_uav_types):
-        ax = axes[idx]
+    # 解析保存路径
+    if os.path.isdir(save_path):
+        save_dir = save_path
+        base_name = "uav_path"
+        ext = ".png"
+    else:
+        save_dir = os.path.dirname(save_path) or "."
+        filename = os.path.basename(save_path)
+        base_name, ext = os.path.splitext(filename)
+        if not ext:
+            ext = ".png"
+
+    os.makedirs(save_dir, exist_ok=True)
+
+    saved_files = []
+
+    for uav_type in subplot_uav_types:
+        fig, ax = plt.subplots(figsize=(6, 5.8))
+
+        # 坐标轴初始化
         setup_axis(ax, initial_uavs, targets, tasks, subplot_titles[uav_type])
 
+        # 先 draw，拿 renderer
         fig.canvas.draw()
         renderer = fig.canvas.get_renderer()
         placed_bboxes = []
 
-        # 只画该类型无人机真实执行过的任务点
+        # 收集该类型无人机真实执行过的任务
         task_ids_this_type = []
         for uav in current_uavs:
             if uav.type == uav_type:
                 task_ids_this_type.extend(list(getattr(uav, "tasks", [])))
 
+        # 画任务点
         plot_tasks_by_ids(
             ax,
             task_by_id,
@@ -657,6 +690,7 @@ def plot_task_type_subfigures(env, result, save_path, dpi=200):
             renderer,
         )
 
+        # 画该类型无人机及其路径
         plot_uavs_and_routes_by_type(
             ax,
             initial_uavs,
@@ -668,7 +702,12 @@ def plot_task_type_subfigures(env, result, save_path, dpi=200):
         )
 
         dedup_legend(ax)
+        plt.tight_layout()
 
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=dpi, bbox_inches="tight")
-    plt.show()
+        out_file = os.path.join(save_dir, f"{base_name}_{type_suffix[uav_type]}{ext}")
+        plt.savefig(out_file, dpi=dpi, bbox_inches="tight")
+        saved_files.append(out_file)
+
+        plt.close(fig)
+
+    return saved_files

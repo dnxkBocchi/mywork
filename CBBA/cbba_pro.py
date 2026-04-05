@@ -45,15 +45,13 @@ class ImprovedCBBASolver:
         max_bundle_size: Optional[int] = None,
         max_consensus_rounds: int = 50,
         cluster_count: Optional[int] = None,
-        kmeans_iters: int = 8,
-        comm_radius: Optional[float] = None,
+        comm_radius: Optional[float] = 40.0,
         sparse_neighbor_k: int = 2,
         debug: bool = False,
     ):
         self.max_bundle_size = max_bundle_size
         self.max_consensus_rounds = max_consensus_rounds
         self.cluster_count = cluster_count
-        self.kmeans_iters = kmeans_iters
         self.comm_radius = comm_radius
         self.sparse_neighbor_k = max(1, sparse_neighbor_k)
         self.debug = debug
@@ -78,128 +76,6 @@ class ImprovedCBBASolver:
                 )
             )
         return states
-
-    def _choose_cluster_count(self, n: int) -> int:
-        if n <= 1:
-            return 1
-        if self.cluster_count is not None:
-            return max(1, min(self.cluster_count, n))
-        return max(1, min(n, int(round(math.sqrt(n)))))
-
-    def _kmeans_pp_clusters(
-        self, env
-    ) -> Tuple[List[List[int]], Dict[int, int], List[int]]:
-        """基于 UAV 当前坐标做 k-means++ 聚类。"""
-        alive_uavs = [uav for uav in env.uavs if uav.alive]
-        if not alive_uavs:
-            return [], {}, []
-
-        points = [
-            (uav.idx, float(uav.location[0]), float(uav.location[1]))
-            for uav in alive_uavs
-        ]
-        k = self._choose_cluster_count(len(points))
-        if k == 1:
-            cluster = [idx for idx, _, _ in points]
-            centroid_x = sum(x for _, x, _ in points) / len(points)
-            centroid_y = sum(y for _, _, y in points) / len(points)
-            leader = min(
-                cluster,
-                key=lambda idx: (
-                    env.euclidean_pos(env.uavs[idx].location, (centroid_x, centroid_y)),
-                    idx,
-                ),
-            )
-            return [cluster], {idx: 0 for idx in cluster}, [leader]
-
-        rng = random.Random(42)
-        centers: List[Tuple[float, float]] = []
-        first = rng.choice(points)
-        centers.append((first[1], first[2]))
-
-        while len(centers) < k:
-            dist2 = []
-            for _, x, y in points:
-                best = min((x - cx) ** 2 + (y - cy) ** 2 for cx, cy in centers)
-                dist2.append(best)
-            total = sum(dist2)
-            if total <= EPS:
-                for _, x, y in points:
-                    if (x, y) not in centers:
-                        centers.append((x, y))
-                        break
-                if len(centers) == len(set(centers)) and len(centers) < k:
-                    centers.append(centers[-1])
-                continue
-            r = rng.random() * total
-            acc = 0.0
-            selected = None
-            for (_, x, y), d2 in zip(points, dist2):
-                acc += d2
-                if acc >= r:
-                    selected = (x, y)
-                    break
-            centers.append(
-                selected if selected is not None else (points[-1][1], points[-1][2])
-            )
-
-        assignments = [0] * len(points)
-        for _ in range(self.kmeans_iters):
-            changed = False
-            for i, (_, x, y) in enumerate(points):
-                best_cid = min(
-                    range(k),
-                    key=lambda cid: (
-                        (x - centers[cid][0]) ** 2 + (y - centers[cid][1]) ** 2,
-                        cid,
-                    ),
-                )
-                if assignments[i] != best_cid:
-                    assignments[i] = best_cid
-                    changed = True
-
-            new_centers = []
-            for cid in range(k):
-                members = [
-                    (x, y) for (_, x, y), a in zip(points, assignments) if a == cid
-                ]
-                if members:
-                    mx = sum(x for x, _ in members) / len(members)
-                    my = sum(y for _, y in members) / len(members)
-                    new_centers.append((mx, my))
-                else:
-                    new_centers.append(centers[cid])
-            centers = new_centers
-            if not changed:
-                break
-
-        clusters: List[List[int]] = [[] for _ in range(k)]
-        membership: Dict[int, int] = {}
-        for (uav_idx, _, _), cid in zip(points, assignments):
-            clusters[cid].append(uav_idx)
-            membership[uav_idx] = cid
-
-        compact_clusters = []
-        leaders = []
-        compact_membership: Dict[int, int] = {}
-        for cid, members in enumerate(clusters):
-            if not members:
-                continue
-            centroid = centers[cid]
-            leader = min(
-                members,
-                key=lambda idx: (
-                    env.euclidean_pos(env.uavs[idx].location, centroid),
-                    idx,
-                ),
-            )
-            new_cid = len(compact_clusters)
-            compact_clusters.append(sorted(members))
-            leaders.append(leader)
-            for idx in members:
-                compact_membership[idx] = new_cid
-
-        return compact_clusters, compact_membership, leaders
 
     def _build_sparse_neighbors(self, env) -> Dict[int, Set[int]]:
         """构造局部通信邻接表。优先用通信半径，否则退化为 k 近邻无向图。"""
@@ -374,7 +250,9 @@ class ImprovedCBBASolver:
         2. 仅让状态变化的 UAV 向局部邻域广播
         """
         task_ids = [task.id for task in available_tasks]
-        global_y = {task_id: prev_global_y.get(task_id, NEG_INF) for task_id in task_ids}
+        global_y = {
+            task_id: prev_global_y.get(task_id, NEG_INF) for task_id in task_ids
+        }
         global_z = {task_id: prev_global_z.get(task_id) for task_id in task_ids}
 
         affected_tasks: Set[str] = set()
@@ -383,7 +261,10 @@ class ImprovedCBBASolver:
             affected_tasks.update(state.bundle)
             affected_tasks.update(state.path)
             for task_id in task_ids:
-                if state.z.get(task_id) == uav_idx and state.y.get(task_id, NEG_INF) > NEG_INF / 10:
+                if (
+                    state.z.get(task_id) == uav_idx
+                    and state.y.get(task_id, NEG_INF) > NEG_INF / 10
+                ):
                     affected_tasks.add(task_id)
 
         for task_id, winner_idx in prev_global_z.items():
@@ -407,7 +288,10 @@ class ImprovedCBBASolver:
             global_y[task_id] = best_bid
             global_z[task_id] = best_uav_idx
 
-            if prev_global_z.get(task_id) != best_uav_idx or abs(prev_global_y.get(task_id, NEG_INF) - best_bid) > EPS:
+            if (
+                prev_global_z.get(task_id) != best_uav_idx
+                or abs(prev_global_y.get(task_id, NEG_INF) - best_bid) > EPS
+            ):
                 changed_tasks.add(task_id)
 
         pruned_agents: Set[int] = set()
@@ -636,7 +520,7 @@ class CBBAEnv:
         max_bundle_size: Optional[int] = None,
         max_consensus_rounds: int = 50,
         cluster_count: Optional[int] = None,
-        comm_radius: Optional[float] = None,
+        comm_radius: Optional[float] = 40.0,
         sparse_neighbor_k: int = 2,
         debug: bool = False,
     ):
@@ -1053,9 +937,7 @@ class CBBAEnv:
             else 0.0
         )
         comm_per_success = (
-            self.total_comm_messages / self.success_count
-            if self.success_count
-            else 0.0
+            self.total_comm_messages / self.success_count if self.success_count else 0.0
         )
 
         return {
